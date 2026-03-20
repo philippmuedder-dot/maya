@@ -5,6 +5,17 @@ import { createServiceClient } from "@/lib/supabase";
 import { fetchCalendarEvents, getTodayEvents } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
+
+const philippContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/philipp.md"),
+  "utf-8"
+);
+const memoryContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/memory.md"),
+  "utf-8"
+);
 
 const BRIEFING_SYSTEM_PROMPT = `You are MAYA, Philipp's personal operating system coach.
 You know his Human Design: 3/5 Generator, Sacral authority,
@@ -201,7 +212,9 @@ Respond with ONLY valid JSON. No markdown, no explanation.`;
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
-      system: BRIEFING_SYSTEM_PROMPT,
+      system: BRIEFING_SYSTEM_PROMPT
+        + "\n\n---\n## Who you are talking to:\n" + philippContext
+        + "\n\n## Long-term memory:\n" + memoryContext,
       messages: [{ role: "user", content: userPrompt }],
     });
 

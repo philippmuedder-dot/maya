@@ -3,6 +3,17 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
+
+const philippContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/philipp.md"),
+  "utf-8"
+);
+const memoryContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/memory.md"),
+  "utf-8"
+);
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -64,6 +75,9 @@ Respond with ONLY valid JSON. No markdown.`;
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
+      system: "You are MAYA, a personal health intelligence system."
+        + "\n\n---\n## Who you are talking to:\n" + philippContext
+        + "\n\n## Long-term memory:\n" + memoryContext,
       messages: [{ role: "user", content: prompt }],
     });
 

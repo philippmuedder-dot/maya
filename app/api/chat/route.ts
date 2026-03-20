@@ -6,6 +6,17 @@ import { fetchCalendarEvents, getTodayEvents } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import { MAYA_SYSTEM_PROMPT } from "@/prompts/system";
 import Anthropic from "@anthropic-ai/sdk";
+import fs from "fs";
+import path from "path";
+
+const philippContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/philipp.md"),
+  "utf-8"
+);
+const memoryContext = fs.readFileSync(
+  path.join(process.cwd(), "prompts/memory.md"),
+  "utf-8"
+);
 
 // GET — fetch chat history
 export async function GET() {
@@ -135,7 +146,9 @@ export async function POST(req: NextRequest) {
   const systemPrompt = `${MAYA_SYSTEM_PROMPT}
 
 Current context (${new Date().toISOString().split("T")[0]}):
-${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`;
+${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`
+    + "\n\n---\n## Who you are talking to:\n" + philippContext
+    + "\n\n## Long-term memory:\n" + memoryContext;
 
   // Get recent chat history for conversation context
   const { data: recentMessages } = await supabase
