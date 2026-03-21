@@ -138,9 +138,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, note: "no data rows extracted — check logs" });
   }
 
+  const dedupedRows = Object.values(
+    rows.reduce((acc, row) => {
+      acc[`${row.user_id}_${row.date}`] = row;
+      return acc;
+    }, {} as Record<string, typeof rows[0]>)
+  );
+
+  console.log(`[apple-health/webhook] rows before dedup: ${rows.length}, after: ${dedupedRows.length}`);
+
   const { error } = await supabase
     .from("apple_health_data")
-    .upsert(rows, { onConflict: "user_id,date" });
+    .upsert(dedupedRows, { onConflict: "user_id,date" });
 
   if (error) {
     console.error("[apple-health/webhook] db error:", error);
@@ -148,6 +157,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, note: "db error — check logs" });
   }
 
-  console.log(`[apple-health/webhook] upserted ${rows.length} rows for ${userEmail}`);
+  console.log(`[apple-health/webhook] upserted ${dedupedRows.length} rows for ${userEmail}`);
   return NextResponse.json({ ok: true, upserted: rows.length });
 }
