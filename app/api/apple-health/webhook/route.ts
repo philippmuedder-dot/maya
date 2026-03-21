@@ -50,16 +50,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Resolve user email — try common field names
+  // Resolve user email — try common field names, fall back to env default
   const userEmail =
     (body.user_email as string | undefined) ??
     (body.email as string | undefined) ??
     (body.userId as string | undefined) ??
+    process.env.DEFAULT_USER_EMAIL ??
     null;
 
+  console.log("[apple-health/webhook] resolved userEmail:", userEmail);
+  console.log("[apple-health/webhook] payload.data structure:", JSON.stringify(body.data ?? body.metrics ?? "(none)").slice(0, 2000));
+
   if (!userEmail || typeof userEmail !== "string") {
-    console.warn("[apple-health/webhook] no user_email found in payload — keys:", Object.keys(body));
-    return NextResponse.json({ ok: true, note: "no user_email — data logged but not saved" });
+    console.warn("[apple-health/webhook] no user_email and no DEFAULT_USER_EMAIL set — data not saved");
+    return NextResponse.json({ ok: true, note: "no user_email — set DEFAULT_USER_EMAIL env var" });
   }
 
   const supabase = createServiceClient();
