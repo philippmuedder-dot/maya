@@ -350,7 +350,7 @@ export async function fetchWhoopData(
   // - workout: v2 (v1 deprecated)
   const [cycleRes, recoveryRes, sleepRes, workoutRes] = await Promise.all([
     whoopGet<{ records: WhoopCycle[] }>(`/v1/cycle?limit=1`, accessToken),
-    whoopGet<{ records: WhoopRecovery[] }>(`/v1/recovery?limit=1`, accessToken),
+    whoopGet<{ records: WhoopRecovery[] }>(`/v2/recovery?limit=1`, accessToken),
     whoopGet<{ records: WhoopSleep[] }>(`/v2/activity/sleep?limit=1`, accessToken),
     whoopGet<{ records: WhoopWorkout[] }>(`/v2/activity/workout?limit=10`, accessToken),
   ]);
