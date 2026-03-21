@@ -210,7 +210,7 @@ async function refreshWhoopToken(
   userId: string,
   refreshToken: string
 ): Promise<string | null> {
-  const body = new URLSearchParams({
+  const reqBody = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: refreshToken,
     client_id: process.env.WHOOP_CLIENT_ID!,
@@ -220,18 +220,57 @@ async function refreshWhoopToken(
   const res = await fetch(WHOOP_TOKEN_URL, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
+    body: reqBody,
   });
 
   console.log("[refreshWhoopToken] status:", res.status);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    console.error("[refreshWhoopToken] failed:", res.status, body);
+    const errBody = await res.text().catch(() => "");
+    console.error("[refreshWhoopToken] failed:", res.status, errBody);
     return null;
   }
+
+  // IMPORTANT: Whoop uses ROTATING refresh tokens.
+  // The moment Whoop returns a new token pair the old refresh_token is revoked.
+  // We must persist the new tokens before returning — if we fail to save we
+  // lose both tokens and can never refresh again without re-connecting OAuth.
   const data = await res.json();
-  await saveWhoopToken(userId, data);
-  return data.access_token;
+  const newAccessToken: string = data.access_token;
+  const newRefreshToken: string | undefined = data.refresh_token;
+
+  // Attempt save with one automatic retry (1s delay) to handle transient DB errors.
+  let lastSaveError: unknown;
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await saveWhoopToken(userId, data);
+      console.log(`[refreshWhoopToken] token saved on attempt ${attempt}`);
+      return newAccessToken;
+    } catch (err) {
+      lastSaveError = err;
+      console.error(
+        `[refreshWhoopToken] save attempt ${attempt} failed:`,
+        err instanceof Error ? err.message : String(err)
+      );
+      if (attempt === 1) {
+        // Wait 1 second before retry
+        await new Promise((resolve) => setTimeout(resolve, 1_000));
+      }
+    }
+  }
+
+  // Both save attempts failed after Whoop already rotated the tokens.
+  // Log the raw tokens so they can be manually recovered from Vercel logs
+  // and inserted directly into Supabase to avoid a full OAuth re-connect.
+  console.error(
+    "[refreshWhoopToken] ROTATION_SAVE_FAILED — manual recovery data below:"
+  );
+  console.error(
+    `ROTATION_SAVE_FAILED: user_id=${userId} new_access_token=${newAccessToken} new_refresh_token=${newRefreshToken ?? "none"} expires_in=${data.expires_in ?? "unknown"}`
+  );
+
+  throw new Error(
+    `ROTATION_SAVE_FAILED: new_refresh_token=${newRefreshToken ?? "none"} (check Vercel logs to manually restore). Original save error: ${lastSaveError instanceof Error ? lastSaveError.message : String(lastSaveError)}`
+  );
 }
 
 /** Returns a valid access token (refreshes if expired) */
@@ -305,9 +344,9 @@ export async function fetchWhoopData(
   accessToken: string
 ): Promise<WhoopData> {
   const [recoveryRes, sleepRes, cycleRes, workoutRes] = await Promise.all([
-    whoopGet<{ data: WhoopRecovery[] }>(`/recovery?limit=1`, accessToken),
-    whoopGet<{ data: WhoopSleep[] }>(`/activity/sleep?limit=5`, accessToken),
-    whoopGet<{ data: WhoopCycle[] }>(`/cycle?limit=1`, accessToken),
+    whoopGet<{ records: WhoopRecovery[] }>(`/recovery?limit=1`, accessToken),
+    whoopGet<{ records: WhoopSleep[] }>(`/activity/sleep?limit=5`, accessToken),
+    whoopGet<{ records: WhoopCycle[] }>(`/cycle?limit=1`, accessToken),
     whoopGet<{ records: WhoopWorkout[] }>(`/activity/workout?limit=10`, accessToken),
   ]);
 
@@ -317,13 +356,13 @@ export async function fetchWhoopData(
   console.log("[fetchWhoopData] workoutRes count:", workoutRes?.records?.length ?? 0);
 
   // Find latest non-nap sleep
-  const sleeps = sleepRes?.data ?? [];
+  const sleeps = sleepRes?.records ?? [];
   const mainSleep = sleeps.find((s) => !s.nap) ?? sleeps[0] ?? null;
 
   return {
-    recovery: recoveryRes?.data?.[0] ?? null,
+    recovery: recoveryRes?.records?.[0] ?? null,
     sleep: mainSleep,
-    cycle: cycleRes?.data?.[0] ?? null,
+    cycle: cycleRes?.records?.[0] ?? null,
     workouts: workoutRes?.records ?? [],
     fetchedAt: new Date().toISOString(),
   };
