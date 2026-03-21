@@ -343,16 +343,24 @@ async function whoopGet<T>(
 export async function fetchWhoopData(
   accessToken: string
 ): Promise<WhoopData> {
-  const [recoveryRes, sleepRes, cycleRes, workoutRes] = await Promise.all([
-    whoopGet<{ records: WhoopRecovery[] }>(`/recovery?limit=1`, accessToken),
-    whoopGet<{ records: WhoopSleep[] }>(`/activity/sleep?limit=5`, accessToken),
-    whoopGet<{ records: WhoopCycle[] }>(`/cycle?limit=1`, accessToken),
+  // Fetch cycle first — we need the cycleId to fetch recovery
+  const cycleRes = await whoopGet<{ records: WhoopCycle[] }>(`/cycle?limit=1`, accessToken);
+  console.log("[fetchWhoopData] cycleRes:", JSON.stringify(cycleRes));
+
+  const cycle = cycleRes?.records?.[0] ?? null;
+  const cycleId = cycle?.id ?? null;
+
+  // Fetch recovery, sleep, and workouts in parallel (recovery needs cycleId)
+  const [recoveryRes, sleepRes, workoutRes] = await Promise.all([
+    cycleId
+      ? whoopGet<WhoopRecovery>(`/cycle/${cycleId}/recovery`, accessToken)
+      : Promise.resolve(null),
+    whoopGet<{ records: WhoopSleep[] }>(`/activity/sleep?limit=1`, accessToken),
     whoopGet<{ records: WhoopWorkout[] }>(`/activity/workout?limit=10`, accessToken),
   ]);
 
   console.log("[fetchWhoopData] recoveryRes:", JSON.stringify(recoveryRes));
   console.log("[fetchWhoopData] sleepRes:", JSON.stringify(sleepRes));
-  console.log("[fetchWhoopData] cycleRes:", JSON.stringify(cycleRes));
   console.log("[fetchWhoopData] workoutRes count:", workoutRes?.records?.length ?? 0);
 
   // Find latest non-nap sleep
@@ -360,9 +368,9 @@ export async function fetchWhoopData(
   const mainSleep = sleeps.find((s) => !s.nap) ?? sleeps[0] ?? null;
 
   return {
-    recovery: recoveryRes?.records?.[0] ?? null,
+    recovery: recoveryRes ?? null,
     sleep: mainSleep,
-    cycle: cycleRes?.records?.[0] ?? null,
+    cycle,
     workouts: workoutRes?.records ?? [],
     fetchedAt: new Date().toISOString(),
   };
