@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
+import { getWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import { createHmac } from "crypto";
 
 /**
@@ -57,9 +57,10 @@ export async function POST(req: NextRequest) {
 
     // Try each user — find the one whose Whoop profile matches
     // For single-user v1, just process the first token
-    const email = tokenRows[0].user_id;
+const email = tokenRows[0].user_id;
 
-    const accessToken = await getValidWhoopToken(email);
+const tokenRow = await getWhoopToken(email);
+const accessToken = tokenRow?.access_token;
     if (!accessToken) {
       console.error("[whoop/webhook] could not get valid token for", email);
       return NextResponse.json({ error: "Token expired" }, { status: 500 });
