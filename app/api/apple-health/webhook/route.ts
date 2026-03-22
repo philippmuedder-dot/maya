@@ -147,16 +147,17 @@ export async function POST(req: NextRequest) {
 
   console.log(`[apple-health/webhook] rows before dedup: ${rows.length}, after: ${dedupedRows.length}`);
 
-  const { error } = await supabase
-    .from("apple_health_data")
-    .upsert(dedupedRows, { onConflict: "user_id,date" });
-
-  if (error) {
-    console.error("[apple-health/webhook] db error:", error);
-    // Return 200 so the app doesn't retry; error is in logs
-    return NextResponse.json({ ok: true, note: "db error — check logs" });
+  let upsertErrors = 0;
+  for (const row of dedupedRows) {
+    const { error } = await supabase
+      .from("apple_health_data")
+      .upsert(row, { onConflict: "user_id,date" });
+    if (error) {
+      console.error("[apple-health/webhook] row upsert error:", error);
+      upsertErrors++;
+    }
   }
 
-  console.log(`[apple-health/webhook] upserted ${dedupedRows.length} rows for ${userEmail}`);
-  return NextResponse.json({ ok: true, upserted: rows.length });
+  console.log(`[apple-health/webhook] upserted ${dedupedRows.length - upsertErrors}/${dedupedRows.length} rows for ${userEmail}`);
+  return NextResponse.json({ ok: true, upserted: dedupedRows.length - upsertErrors, errors: upsertErrors });
 }
