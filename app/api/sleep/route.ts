@@ -152,12 +152,16 @@ export async function GET() {
 
   let sleepLog: SleepLogEntry[] = [];
   let sleepDebt: number | null = null;
+  let whoopConnected = false;
 
   try {
     const token = await getValidWhoopToken(userId);
     if (token) {
+      whoopConnected = true;
+
+      // ── Detailed sleep log from Whoop API (v2) ──────────────────────────────
       const res = await fetch(
-        `https://api.prod.whoop.com/developer/v1/activity/sleep?limit=7`,
+        `https://api.prod.whoop.com/developer/v2/activity/sleep?limit=7`,
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -167,7 +171,6 @@ export async function GET() {
         const data = await res.json();
         const records = data.records ?? [];
 
-        // Filter out naps, map to our format
         const mainSleeps = records.filter(
           (r: { nap: boolean }) => !r.nap
         );
@@ -207,19 +210,59 @@ export async function GET() {
             };
           }
         );
-
-        // Calculate sleep debt (target 8hrs per night)
-        if (sleepLog.length > 0) {
-          sleepDebt = sleepLog.reduce(
-            (debt, night) => debt + (8 - night.duration_hrs),
-            0
-          );
-          sleepDebt = +sleepDebt.toFixed(1);
-        }
       }
     }
   } catch (err) {
-    console.error("[sleep] Whoop sleep fetch error:", err);
+    console.error("[sleep] Whoop token/sleep fetch error:", err);
+    // Token exists but API failed — still mark connected so we can use DB data
+    try {
+      const { data: tokenRow } = await supabase
+        .from("whoop_tokens")
+        .select("user_id")
+        .eq("user_id", userId)
+        .single();
+      if (tokenRow) whoopConnected = true;
+    } catch { /* ignore */ }
+  }
+
+  // ── Sleep debt from whoop_daily_data (reliable DB source) ─────────────────
+  // Use this regardless of whether the API call succeeded — it's populated on
+  // each /api/whoop/data call so it's the most consistent source.
+  if (whoopConnected) {
+    try {
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
+
+      const { data: dailyRows } = await supabase
+        .from("whoop_daily_data")
+        .select("date, sleep_hours")
+        .eq("user_id", userId)
+        .gte("date", sevenDaysAgoStr)
+        .not("sleep_hours", "is", null);
+
+      if (dailyRows && dailyRows.length > 0) {
+        const debt = dailyRows.reduce(
+          (sum: number, row: { sleep_hours: number }) =>
+            sum + Math.max(0, 8 - row.sleep_hours),
+          0
+        );
+        sleepDebt = +debt.toFixed(1);
+      } else if (sleepLog.length > 0) {
+        // Fall back to API-derived log if DB has no data yet
+        sleepDebt = +sleepLog
+          .reduce((debt, night) => debt + (8 - night.duration_hrs), 0)
+          .toFixed(1);
+      }
+    } catch (err) {
+      console.error("[sleep] whoop_daily_data fetch error:", err);
+      // Last resort: calculate from API sleep log if available
+      if (sleepLog.length > 0) {
+        sleepDebt = +sleepLog
+          .reduce((debt, night) => debt + (8 - night.duration_hrs), 0)
+          .toFixed(1);
+      }
+    }
   }
 
   return NextResponse.json({

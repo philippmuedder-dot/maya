@@ -53,6 +53,7 @@ export default function WeeklyPage() {
   const [showPlanning, setShowPlanning] = useState(false);
   const [summary, setSummary] = useState<string | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const isSunday = new Date().getDay() === 0;
 
@@ -112,6 +113,20 @@ export default function WeeklyPage() {
   function handlePlanningComplete() {
     setShowPlanning(false);
     fetchWeekData();
+  }
+
+  async function deletePlan() {
+    if (!confirm("Delete this week's plan? This cannot be undone.")) return;
+    setDeleting(true);
+    try {
+      await fetch("/api/weekly", { method: "DELETE" });
+      setPlan(null);
+      setSummary(null);
+    } catch (err) {
+      console.error("Failed to delete plan:", err);
+    } finally {
+      setDeleting(false);
+    }
   }
 
   // Format week range for display
@@ -196,14 +211,25 @@ export default function WeeklyPage() {
             Weekly Review
           </h1>
         </div>
-        {isSunday && (
-          <button
-            onClick={() => setShowPlanning(true)}
-            className="px-4 py-2 rounded-xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            {plan ? "Redo Planning" : "Start Weekly Planning"}
-          </button>
-        )}
+        <div className="flex gap-2">
+          {isSunday && (
+            <button
+              onClick={() => setShowPlanning(true)}
+              className="px-4 py-2 rounded-xl bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              {plan ? "Redo Planning" : "Start Weekly Planning"}
+            </button>
+          )}
+          {plan && (
+            <button
+              onClick={deletePlan}
+              disabled={deleting}
+              className="px-4 py-2 rounded-xl border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 text-sm font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:opacity-50"
+            >
+              {deleting ? "Deleting..." : "Delete Plan"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* No plan yet */}

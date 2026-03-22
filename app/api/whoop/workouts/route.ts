@@ -7,7 +7,7 @@ import { getValidWhoopToken, WhoopWorkout, whoopSportName } from "@/lib/whoop";
 // lighter than calling /api/whoop/data which also fetches recovery + sleep + cycle.
 async function fetchWorkouts(accessToken: string): Promise<WhoopWorkout[]> {
   const res = await fetch(
-    "https://api.prod.whoop.com/developer/v1/activity/workout?limit=10",
+    "https://api.prod.whoop.com/developer/v2/activity/workout?limit=10",
     {
       headers: {
         Authorization: `Bearer ${accessToken}`,

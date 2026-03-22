@@ -146,6 +146,12 @@ export default function WeeklyPlanningModal({ onComplete }: Props) {
     }
   }
 
+  function updateScheduleDate(index: number, date: string) {
+    const newSchedule = [...schedule];
+    newSchedule[index] = { ...newSchedule[index], date };
+    setSchedule(newSchedule);
+  }
+
   function moveScheduleItem(index: number, direction: "up" | "down") {
     const newSchedule = [...schedule];
     const swapIndex = direction === "up" ? index - 1 : index + 1;
@@ -400,15 +406,6 @@ export default function WeeklyPlanningModal({ onComplete }: Props) {
                     confirming.
                   </p>
                   {schedule.map((item, i) => {
-                    const dayName = new Date(
-                      item.date + "T12:00:00"
-                    ).toLocaleDateString("en-US", { weekday: "short" });
-                    const dateShort = new Date(
-                      item.date + "T12:00:00"
-                    ).toLocaleDateString("en-US", {
-                      month: "short",
-                      day: "numeric",
-                    });
                     return (
                       <div
                         key={i}
@@ -431,10 +428,13 @@ export default function WeeklyPlanningModal({ onComplete }: Props) {
                           </button>
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-bold text-neutral-500">
-                              {dayName} {dateShort}
-                            </span>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <input
+                              type="date"
+                              value={item.date}
+                              onChange={(e) => updateScheduleDate(i, e.target.value)}
+                              className="text-xs font-bold text-neutral-500 bg-transparent border border-neutral-200 dark:border-neutral-700 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-neutral-400"
+                            />
                             <span
                               className={`text-xs px-1.5 py-0.5 rounded ${
                                 item.suggested_time === "Morning"

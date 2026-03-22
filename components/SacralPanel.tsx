@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   prompts: string[];
@@ -14,6 +14,20 @@ interface SacralResponse {
 export default function SacralPanel({ prompts }: Props) {
   const [responses, setResponses] = useState<SacralResponse[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
+  const [loadingExisting, setLoadingExisting] = useState(true);
+
+  // Load today's already-saved responses on mount
+  useEffect(() => {
+    fetch("/api/sacral")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: { prompt: string; response: "yes" | "no" }[]) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setResponses(data.map((d) => ({ prompt: d.prompt, response: d.response })));
+        }
+      })
+      .catch(() => {})
+      .finally(() => setLoadingExisting(false));
+  }, []);
 
   const answered = new Set(responses.map((r) => r.prompt));
 
@@ -35,6 +49,25 @@ export default function SacralPanel({ prompts }: Props) {
     }
   }
 
+  if (loadingExisting) {
+    return (
+      <div className="space-y-3">
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            Sacral Response
+          </h3>
+        </div>
+        <div className="animate-pulse space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-neutral-100 dark:bg-neutral-800 rounded-xl" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const allAnswered = prompts.length > 0 && prompts.every((p) => answered.has(p));
+
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2">
@@ -42,7 +75,7 @@ export default function SacralPanel({ prompts }: Props) {
           Sacral Response
         </h3>
         <span className="text-xs text-neutral-400">
-          Trust your gut — yes or no
+          {allAnswered ? "All responses saved for today" : "Trust your gut — yes or no"}
         </span>
       </div>
 

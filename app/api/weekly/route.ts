@@ -92,6 +92,29 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ plan: data });
 }
 
+// DELETE — delete the current week's plan
+export async function DELETE() {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const supabase = createServiceClient();
+  const weekStart = getCurrentWeekStart();
+
+  const { error } = await supabase
+    .from("weekly_plans")
+    .delete()
+    .eq("user_id", session.user.email)
+    .eq("week_start", weekStart);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
+}
+
 // PATCH — update task completion or schedule
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions);
