@@ -167,11 +167,15 @@ function SupplementCard({
   onEdit,
   onToggle,
   onDelete,
+  taken,
+  onToggleTaken,
 }: {
   supplement: Supplement;
   onEdit: (s: Supplement) => void;
   onToggle: (s: Supplement) => void;
   onDelete: (id: string) => void;
+  taken: boolean;
+  onToggleTaken: (id: string, taken: boolean) => void;
 }) {
   return (
     <div
@@ -217,6 +221,30 @@ function SupplementCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Taken today toggle — active supplements only */}
+          {supplement.active && (
+            <button
+              onClick={() => onToggleTaken(supplement.id, !taken)}
+              title={taken ? "Mark as not taken" : "Mark as taken today"}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                taken
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                  : "border border-neutral-200 dark:border-neutral-700 text-neutral-400 dark:text-neutral-500 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400"
+              }`}
+            >
+              {taken ? (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="12" cy="12" r="9" strokeLinecap="round" />
+                </svg>
+              )}
+              {taken ? "Taken" : "Take"}
+            </button>
+          )}
+
           {/* Active toggle */}
           <button
             onClick={() => onToggle(supplement)}
@@ -595,6 +623,9 @@ export default function SupplementsPage() {
   // Filter
   const [filter, setFilter] = useState<"all" | "active" | "paused">("all");
 
+  // Compliance — taken today
+  const [takenToday, setTakenToday] = useState<Set<string>>(new Set());
+
   useEffect(() => {
     fetch("/api/supplements")
       .then((r) => r.json())
@@ -603,6 +634,14 @@ export default function SupplementsPage() {
       })
       .catch(console.error)
       .finally(() => setLoading(false));
+
+    // Load today's compliance
+    fetch("/api/supplements/logs")
+      .then((r) => r.json())
+      .then((data) => {
+        if (Array.isArray(data.taken)) setTakenToday(new Set(data.taken));
+      })
+      .catch(console.error);
   }, []);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -680,6 +719,21 @@ export default function SupplementsPage() {
     if (res.ok) {
       setSupplements((prev) => prev.map((x) => (x.id === s.id ? data : x)));
     }
+  }
+
+  async function toggleTaken(id: string, taken: boolean) {
+    // Optimistic update
+    setTakenToday((prev) => {
+      const next = new Set(prev);
+      if (taken) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+    await fetch("/api/supplements/logs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ supplement_id: id, taken }),
+    }).catch(console.error);
   }
 
   async function deleteSupplement(id: string) {
@@ -1014,6 +1068,8 @@ export default function SupplementsPage() {
                 onEdit={openEdit}
                 onToggle={toggleActive}
                 onDelete={deleteSupplement}
+                taken={takenToday.has(s.id)}
+                onToggleTaken={toggleTaken}
               />
             </div>
           ))}

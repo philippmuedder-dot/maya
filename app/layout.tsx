@@ -13,6 +13,16 @@ export const metadata: Metadata = {
   description: "Your Human Design-aligned personal OS",
   icons: {
     icon: "/favicon.svg",
+    apple: "/icon-192.svg",
+  },
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "MAYA",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
   },
 };
 

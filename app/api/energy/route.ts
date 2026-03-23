@@ -12,7 +12,6 @@ export async function GET() {
 
   const supabase = createServiceClient();
 
-  // Fetch last 14 days of energy logs
   const fourteenDaysAgo = new Date();
   fourteenDaysAgo.setDate(fourteenDaysAgo.getDate() - 13);
   const cutoff = fourteenDaysAgo.toISOString().split("T")[0];
@@ -22,7 +21,7 @@ export async function GET() {
     .select("*")
     .eq("user_id", session.user.email)
     .gte("date", cutoff)
-    .order("date", { ascending: false });
+    .order("created_at", { ascending: false });
 
   if (logsError) {
     return NextResponse.json({ error: logsError.message }, { status: 500 });
@@ -43,7 +42,7 @@ export async function GET() {
   });
 }
 
-// POST — create or update today's energy log
+// POST — add a new energy log entry (multiple allowed per day)
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
@@ -63,42 +62,47 @@ export async function POST(req: NextRequest) {
   const supabase = createServiceClient();
   const today = new Date().toISOString().split("T")[0];
 
-  // Check if today's log already exists
-  const { data: existing } = await supabase
+  const { data, error } = await supabase
     .from("energy_logs")
-    .select("id")
-    .eq("user_id", session.user.email)
-    .eq("date", today)
+    .insert({
+      user_id: session.user.email,
+      date: today,
+      people: people || null,
+      feeling,
+      drain_source: drain_source || null,
+    })
+    .select()
     .single();
-
-  let data, error;
-
-  if (existing) {
-    // Update existing log
-    ({ data, error } = await supabase
-      .from("energy_logs")
-      .update({ people: people || null, feeling, drain_source: drain_source || null })
-      .eq("id", existing.id)
-      .select()
-      .single());
-  } else {
-    // Insert new log
-    ({ data, error } = await supabase
-      .from("energy_logs")
-      .insert({
-        user_id: session.user.email,
-        date: today,
-        people: people || null,
-        feeling,
-        drain_source: drain_source || null,
-      })
-      .select()
-      .single());
-  }
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json(data);
+  return NextResponse.json(data, { status: 201 });
+}
+
+// DELETE — remove a specific log entry
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.email) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { id } = await req.json();
+  if (!id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("energy_logs")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", session.user.email);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  return NextResponse.json({ ok: true });
 }

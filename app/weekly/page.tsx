@@ -54,6 +54,8 @@ export default function WeeklyPage() {
   const [summary, setSummary] = useState<string | null>(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [syncingIdx, setSyncingIdx] = useState<number | null>(null);
+  const [syncedIdxs, setSyncedIdxs] = useState<Set<number>>(new Set());
 
   const isSunday = new Date().getDay() === 0;
 
@@ -107,6 +109,29 @@ export default function WeeklyPage() {
       });
     } catch (err) {
       console.error("Failed to update task:", err);
+    }
+  }
+
+  async function syncToCalendar(item: ScheduleItem, globalIdx: number) {
+    setSyncingIdx(globalIdx);
+    try {
+      const res = await fetch("/api/calendar/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: item.task,
+          date: item.date,
+          suggested_time: item.suggested_time,
+          category: item.category,
+        }),
+      });
+      if (res.ok) {
+        setSyncedIdxs((prev) => new Set([...prev, globalIdx]));
+      }
+    } catch (err) {
+      console.error("Failed to sync to calendar:", err);
+    } finally {
+      setSyncingIdx(null);
     }
   }
 
@@ -411,7 +436,7 @@ export default function WeeklyPage() {
                               >
                                 {item.task}
                               </p>
-                              <div className="flex items-center gap-2 mt-1">
+                              <div className="flex items-center gap-2 mt-1 flex-wrap">
                                 <span
                                   className={`text-xs px-1.5 py-0.5 rounded ${
                                     item.suggested_time === "Morning"
@@ -432,6 +457,25 @@ export default function WeeklyPage() {
                                 >
                                   {item.category}
                                 </span>
+                                {syncedIdxs.has(globalIdx) ? (
+                                  <span className="text-xs text-emerald-600 dark:text-emerald-400 font-medium flex items-center gap-1">
+                                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                    </svg>
+                                    Added to Calendar
+                                  </span>
+                                ) : (
+                                  <button
+                                    onClick={() => syncToCalendar(item, globalIdx)}
+                                    disabled={syncingIdx === globalIdx}
+                                    className="text-xs px-2 py-0.5 rounded border border-neutral-200 dark:border-neutral-700 text-neutral-500 dark:text-neutral-400 hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors disabled:opacity-50 flex items-center gap-1"
+                                  >
+                                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    {syncingIdx === globalIdx ? "Adding…" : "Sync"}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
