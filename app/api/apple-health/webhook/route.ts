@@ -94,18 +94,31 @@ export async function POST(req: NextRequest) {
     (body.metrics as unknown[] | undefined);
 
   if (Array.isArray(metrics)) {
-    const dateMap = new Map<string, { steps: number | null; resting_hr: number | null; hrv: number | null }>();
+    const dateMap = new Map<string, {
+      steps: number | null;
+      resting_hr: number | null;
+      hrv: number | null;
+      walking_running_distance: number | null;
+    }>();
+    // Track counts for fields that need averaging
+    const avgCounts = new Map<string, Map<string, number>>();
 
-    const METRIC_MAP: Record<string, "steps" | "resting_hr" | "hrv"> = {
+    const METRIC_MAP: Record<string, "steps" | "resting_hr" | "hrv" | "walking_running_distance"> = {
       // common Health Auto Export names
       step_count: "steps",
       steps: "steps",
       resting_heart_rate: "resting_hr",
       restingHeartRate: "resting_hr",
+      resting_hr: "resting_hr",
       heart_rate_variability: "hrv",
       heartRateVariability: "hrv",
       hrv: "hrv",
+      heart_rate: "hrv", // fallback mapping
+      walking_running_distance: "walking_running_distance",
     };
+
+    // Metrics that should be SUMMED per day (not averaged)
+    const SUM_FIELDS = new Set(["steps", "walking_running_distance"]);
 
     for (const metric of metrics as { name?: string; data?: { date?: string; qty?: number }[] }[]) {
       console.log("[apple-health/webhook] metric name:", metric.name, "data points:", metric.data?.length ?? 0);
@@ -114,13 +127,26 @@ export async function POST(req: NextRequest) {
 
       for (const point of metric.data) {
         const date = typeof point.date === "string" ? point.date.split("T")[0] : null;
-        if (!date) continue;
+        if (!date || typeof point.qty !== "number") continue;
 
         if (!dateMap.has(date)) {
-          dateMap.set(date, { steps: null, resting_hr: null, hrv: null });
+          dateMap.set(date, { steps: null, resting_hr: null, hrv: null, walking_running_distance: null });
         }
         const entry = dateMap.get(date)!;
-        entry[field] = typeof point.qty === "number" ? Math.round(point.qty) : null;
+
+        if (SUM_FIELDS.has(field)) {
+          // SUM for steps and distance
+          entry[field] = (entry[field] ?? 0) + point.qty;
+        } else {
+          // AVERAGE for heart rate metrics
+          if (!avgCounts.has(date)) avgCounts.set(date, new Map());
+          const dateCounts = avgCounts.get(date)!;
+          const count = (dateCounts.get(field) ?? 0) + 1;
+          dateCounts.set(field, count);
+          // Running average: prev * (n-1)/n + new/n
+          const prev = entry[field] ?? 0;
+          entry[field] = prev + (point.qty - prev) / count;
+        }
       }
     }
 
@@ -128,7 +154,9 @@ export async function POST(req: NextRequest) {
       rows = Array.from(dateMap.entries()).map(([date, data]) => ({
         user_id: userEmail,
         date,
-        ...data,
+        steps: data.steps !== null ? Math.round(data.steps) : null,
+        resting_hr: data.resting_hr !== null ? Math.round(data.resting_hr) : null,
+        hrv: data.hrv !== null ? Math.round(data.hrv) : null,
       }));
     }
   }

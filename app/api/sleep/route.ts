@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
 import { getValidWhoopToken } from "@/lib/whoop";
-import { fetchCalendarEvents } from "@/lib/googleCalendar";
+import { fetchCalendarEvents, getBerlinDateStr } from "@/lib/googleCalendar";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -15,19 +15,46 @@ export async function GET() {
   const supabase = createServiceClient();
 
   // ─── Fetch calendar events for bedtime + wind-down ─────────────────────────
-  let bedtime: { time: string; event_summary: string; event_time: string } | null = null;
+  let bedtime: { time: string; wake_time: string; event_summary: string; event_time: string } | null = null;
   let tomorrowEventCount = 0;
+
+  // Fetch Whoop sleep need from DB (fallback to 8hrs baseline)
+  let sleepNeedHrs = 8;
+  try {
+    const { data: whoopRow } = await supabase
+      .from("whoop_daily_data")
+      .select("sleep_needed_hrs")
+      .eq("user_id", userId)
+      .not("sleep_needed_hrs", "is", null)
+      .order("date", { ascending: false })
+      .limit(1)
+      .single();
+    if (whoopRow?.sleep_needed_hrs) {
+      sleepNeedHrs = whoopRow.sleep_needed_hrs;
+    }
+  } catch {
+    // Use baseline 8hrs
+  }
 
   if (session.accessToken) {
     try {
       const calData = await fetchCalendarEvents(session.accessToken as string);
       const tomorrow = new Date();
       tomorrow.setDate(tomorrow.getDate() + 1);
-      const tomorrowStr = tomorrow.toISOString().split("T")[0];
+      const tomorrowStr = getBerlinDateStr(tomorrow);
 
       const tomorrowEvents = calData.events.filter((e) => {
-        const start = e.start.dateTime ?? e.start.date ?? "";
-        return start.startsWith(tomorrowStr);
+        const startStr = e.start.dateTime ?? e.start.date ?? "";
+        if (e.start.dateTime) {
+          const berlinEventDate = new Intl.DateTimeFormat("en-CA", {
+            timeZone: "Europe/Berlin",
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(new Date(e.start.dateTime));
+          return berlinEventDate === tomorrowStr;
+        }
+        return startStr.startsWith(tomorrowStr);
       });
 
       tomorrowEventCount = tomorrowEvents.length;
@@ -36,22 +63,24 @@ export async function GET() {
       const firstTimedEvent = tomorrowEvents.find((e) => e.start.dateTime);
       if (firstTimedEvent?.start.dateTime) {
         const eventStart = new Date(firstTimedEvent.start.dateTime);
-        const bedtimeDate = new Date(eventStart.getTime() - 8.5 * 60 * 60 * 1000);
-        const eventTimeStr = eventStart.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
-        const bedtimeStr = bedtimeDate.toLocaleTimeString("en-US", {
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        });
+        // Wake time = first event - 90min morning routine
+        const wakeTime = new Date(eventStart.getTime() - 90 * 60 * 1000);
+        // Bedtime = wake time - sleep need
+        const bedtimeDate = new Date(wakeTime.getTime() - sleepNeedHrs * 60 * 60 * 1000);
+
+        const fmtBerlin = (d: Date) =>
+          new Intl.DateTimeFormat("en-US", {
+            timeZone: "Europe/Berlin",
+            hour: "2-digit",
+            minute: "2-digit",
+            hour12: false,
+          }).format(d);
 
         bedtime = {
-          time: bedtimeStr,
+          time: `Wake by ${fmtBerlin(wakeTime)} → Lights out by ${fmtBerlin(bedtimeDate)}`,
+          wake_time: fmtBerlin(wakeTime),
           event_summary: firstTimedEvent.summary || "Event",
-          event_time: eventTimeStr,
+          event_time: fmtBerlin(eventStart),
         };
       }
     } catch (err) {
@@ -61,7 +90,7 @@ export async function GET() {
 
   // ─── Fetch today's checkin stress level ────────────────────────────────────
   let stressLevel: number | null = null;
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = getBerlinDateStr();
 
   try {
     const { data: checkinData } = await supabase

@@ -46,15 +46,27 @@ export function classifyCalendarLoad(events: CalendarEvent[]): {
 }
 
 export function getTodayEvents(events: CalendarEvent[]): CalendarEvent[] {
-  const now = new Date();
-  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const todayEnd = new Date(todayStart.getTime() + 86_400_000);
+  // Calculate "today" in Europe/Berlin timezone
+  const berlinDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date()); // yields "YYYY-MM-DD"
 
   return events.filter((e) => {
-    const start = e.start.dateTime
-      ? new Date(e.start.dateTime)
-      : new Date(e.start.date!);
-    return start >= todayStart && start < todayEnd;
+    const startStr = e.start.dateTime ?? e.start.date ?? "";
+    // For dateTime values, convert to Berlin date; for date values, use as-is
+    if (e.start.dateTime) {
+      const berlinEventDate = new Intl.DateTimeFormat("en-CA", {
+        timeZone: "Europe/Berlin",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+      }).format(new Date(e.start.dateTime));
+      return berlinEventDate === berlinDate;
+    }
+    return startStr.startsWith(berlinDate);
   });
 }
 
@@ -64,7 +76,13 @@ export function groupEventsByDay(
   return events.reduce(
     (acc, event) => {
       const dateStr = event.start.dateTime
-        ? new Date(event.start.dateTime).toDateString()
+        ? new Intl.DateTimeFormat("en-US", {
+            timeZone: "Europe/Berlin",
+            weekday: "short",
+            year: "numeric",
+            month: "short",
+            day: "2-digit",
+          }).format(new Date(event.start.dateTime))
         : new Date(event.start.date!).toDateString();
       if (!acc[dateStr]) acc[dateStr] = [];
       acc[dateStr].push(event);
@@ -74,14 +92,25 @@ export function groupEventsByDay(
   );
 }
 
+/** Get today's date string (YYYY-MM-DD) in Europe/Berlin timezone */
+export function getBerlinDateStr(date: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 export function formatEventTime(event: CalendarEvent): string {
   if (event.start.date && !event.start.dateTime) return "All day";
   if (!event.start.dateTime) return "";
-  return new Date(event.start.dateTime).toLocaleTimeString("en-US", {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-  });
+  }).format(new Date(event.start.dateTime));
 }
 
 const WORK_CALENDAR_ID = "philipp@vetsak.com";

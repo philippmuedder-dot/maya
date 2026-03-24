@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
-import { fetchCalendarEvents, getTodayEvents } from "@/lib/googleCalendar";
+import { fetchCalendarEvents, getTodayEvents, getBerlinDateStr } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
@@ -47,7 +47,7 @@ export async function GET() {
   }
 
   const supabase = createServiceClient();
-  const today = new Date().toISOString().split("T")[0];
+  const today = getBerlinDateStr();
 
   // Check for cached briefing
   const { data: cached } = await supabase
