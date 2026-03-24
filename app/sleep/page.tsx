@@ -27,6 +27,7 @@ interface Supplement {
 interface SleepData {
   bedtime: {
     time: string;
+    wake_time: string;
     event_summary: string;
     event_time: string;
   } | null;
@@ -142,8 +143,8 @@ export default function SleepPage() {
               {data.bedtime.time}
             </p>
             <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
-              Lights out by {data.bedtime.time} for 8hrs before your{" "}
-              {data.bedtime.event_time} {data.bedtime.event_summary}
+              For 8hrs sleep before your {data.bedtime.event_time}{" "}
+              {data.bedtime.event_summary}
             </p>
           </div>
         ) : (
