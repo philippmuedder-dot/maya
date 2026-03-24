@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import DailyCheckinModal from "./DailyCheckinModal";
 import ProactiveAlerts from "./ProactiveAlerts";
+import DailyTasks from "./DailyTasks";
 import SacralPanel from "./SacralPanel";
 import { CalendarPanel } from "./CalendarPanel";
 
@@ -150,6 +151,9 @@ export default function MorningBriefing() {
 
       {/* Proactive Alerts */}
       <ProactiveAlerts />
+
+      {/* Daily Tasks */}
+      <DailyTasks />
 
       {/* Day Type + Training + Decision */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

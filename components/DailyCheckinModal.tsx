@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface Props {
   onComplete: () => void;
+}
+
+interface CarriedTask {
+  task: string;
+  date: string;
 }
 
 const MOODS = ["Energized", "Calm", "Neutral", "Tired", "Frustrated"] as const;
@@ -24,15 +29,51 @@ export default function DailyCheckinModal({ onComplete }: Props) {
   const [creative, setCreative] = useState<string>("");
   const [feelingIsMine, setFeelingIsMine] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState(0); // 0=stress, 1=mood, 2=creative, 3=solar plexus (conditional)
+  const [step, setStep] = useState(0); // 0=stress, 1=mood, 2=creative, 3=tasks, 4=solar plexus (conditional)
+
+  // Top 3 tasks
+  const [task1, setTask1] = useState("");
+  const [task2, setTask2] = useState("");
+  const [task3, setTask3] = useState("");
+  const [carriedTasks, setCarriedTasks] = useState<CarriedTask[]>([]);
+
+  // Fetch yesterday's incomplete tasks for carry-over
+  useEffect(() => {
+    async function fetchCarryOver() {
+      try {
+        const res = await fetch("/api/daily-tasks");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.yesterdayIncomplete && data.yesterdayIncomplete.length > 0) {
+            const carried = data.yesterdayIncomplete
+              .slice(0, 3)
+              .map((t: { task: string; date: string }) => ({
+                task: t.task,
+                date: t.date,
+              }));
+            setCarriedTasks(carried);
+            // Pre-fill task inputs with carried-over tasks
+            if (carried[0]) setTask1(carried[0].task);
+            if (carried[1]) setTask2(carried[1].task);
+            if (carried[2]) setTask3(carried[2].task);
+          }
+        }
+      } catch {
+        // Non-critical, continue without carry-over
+      }
+    }
+    fetchCarryOver();
+  }, []);
 
   const showSolarPlexus = stress > 6;
-  const totalSteps = showSolarPlexus ? 4 : 3;
+  // Steps: 0=stress, 1=mood, 2=creative, 3=tasks, then optionally 4=solar plexus
+  const totalSteps = showSolarPlexus ? 5 : 4;
 
   async function handleSubmit() {
     setSaving(true);
     try {
-      const res = await fetch("/api/checkin", {
+      // Save check-in
+      const checkinRes = await fetch("/api/checkin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -43,7 +84,27 @@ export default function DailyCheckinModal({ onComplete }: Props) {
           feeling_is_mine: showSolarPlexus ? feelingIsMine : null,
         }),
       });
-      if (res.ok) {
+
+      // Save daily tasks
+      const tasks = [task1, task2, task3]
+        .filter((t) => t.trim() !== "")
+        .map((t) => {
+          const carried = carriedTasks.find((ct) => ct.task === t);
+          return {
+            task: t,
+            carried_from_date: carried ? carried.date : undefined,
+          };
+        });
+
+      if (tasks.length > 0) {
+        await fetch("/api/daily-tasks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tasks }),
+        });
+      }
+
+      if (checkinRes.ok) {
         onComplete();
       }
     } catch (err) {
@@ -57,11 +118,12 @@ export default function DailyCheckinModal({ onComplete }: Props) {
     if (step === 0) return true;
     if (step === 1) return mood !== "";
     if (step === 2) return creative !== "";
+    if (step === 3) return true; // tasks are optional
     return true;
   }
 
   function next() {
-    if (step === 2 && !showSolarPlexus) {
+    if (step === 3 && !showSolarPlexus) {
       handleSubmit();
     } else if (step === totalSteps - 1) {
       handleSubmit();
@@ -190,7 +252,57 @@ export default function DailyCheckinModal({ onComplete }: Props) {
             </div>
           )}
 
-          {step === 3 && showSolarPlexus && (
+          {step === 3 && (
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                What are your top 3 things to get done today?
+              </label>
+              <p className="text-xs text-neutral-400">
+                Optional — helps you stay focused and track patterns.
+              </p>
+              {carriedTasks.length > 0 && (
+                <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <p className="text-xs text-amber-700 dark:text-amber-300">
+                    Carried from yesterday — pre-filled below
+                  </p>
+                </div>
+              )}
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-400 w-4 shrink-0">1</span>
+                  <input
+                    type="text"
+                    value={task1}
+                    onChange={(e) => setTask1(e.target.value)}
+                    placeholder="Most important thing"
+                    className="flex-1 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-400 w-4 shrink-0">2</span>
+                  <input
+                    type="text"
+                    value={task2}
+                    onChange={(e) => setTask2(e.target.value)}
+                    placeholder="Second priority"
+                    className="flex-1 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-neutral-400 w-4 shrink-0">3</span>
+                  <input
+                    type="text"
+                    value={task3}
+                    onChange={(e) => setTask3(e.target.value)}
+                    placeholder="Third priority"
+                    className="flex-1 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && showSolarPlexus && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -236,7 +348,7 @@ export default function DailyCheckinModal({ onComplete }: Props) {
           >
             {saving
               ? "Saving..."
-              : step === totalSteps - 1 || (step === 2 && !showSolarPlexus)
+              : step === totalSteps - 1 || (step === 3 && !showSolarPlexus)
                 ? "Generate Briefing"
                 : "Continue"}
           </button>

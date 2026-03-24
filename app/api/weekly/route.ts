@@ -13,7 +13,17 @@ function getCurrentWeekStart(): string {
   return monday.toISOString().split("T")[0];
 }
 
-// GET — fetch current week's plan
+// Helper: get Monday of a given week offset (0 = this week, -1 = last week)
+function getWeekStart(offset: number = 0): string {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() - diff + offset * 7);
+  return monday.toISOString().split("T")[0];
+}
+
+// GET — fetch current week's plan + last week's plan and checkins
 export async function GET() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.email) {
@@ -22,35 +32,63 @@ export async function GET() {
 
   const supabase = createServiceClient();
   const weekStart = getCurrentWeekStart();
+  const lastWeekStart = getWeekStart(-1);
 
-  const { data, error } = await supabase
-    .from("weekly_plans")
-    .select("*")
-    .eq("user_id", session.user.email)
-    .eq("week_start", weekStart)
-    .single();
+  // Fetch this week's plan and last week's plan in parallel
+  const [currentPlanRes, lastPlanRes] = await Promise.all([
+    supabase
+      .from("weekly_plans")
+      .select("*")
+      .eq("user_id", session.user.email)
+      .eq("week_start", weekStart)
+      .single(),
+    supabase
+      .from("weekly_plans")
+      .select("*")
+      .eq("user_id", session.user.email)
+      .eq("week_start", lastWeekStart)
+      .single(),
+  ]);
 
-  if (error && error.code !== "PGRST116") {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (currentPlanRes.error && currentPlanRes.error.code !== "PGRST116") {
+    return NextResponse.json({ error: currentPlanRes.error.message }, { status: 500 });
   }
 
-  // Also fetch week stats for review
+  // Fetch checkins for both weeks
   const weekEnd = new Date(weekStart);
   weekEnd.setDate(weekEnd.getDate() + 6);
   const weekEndStr = weekEnd.toISOString().split("T")[0];
 
-  const { data: checkins } = await supabase
-    .from("daily_checkins")
-    .select("*")
-    .eq("user_id", session.user.email)
-    .gte("date", weekStart)
-    .lte("date", weekEndStr)
-    .order("date", { ascending: true });
+  const lastWeekEnd = new Date(lastWeekStart);
+  lastWeekEnd.setDate(lastWeekEnd.getDate() + 6);
+  const lastWeekEndStr = lastWeekEnd.toISOString().split("T")[0];
+
+  const [currentCheckinsRes, lastCheckinsRes] = await Promise.all([
+    supabase
+      .from("daily_checkins")
+      .select("*")
+      .eq("user_id", session.user.email)
+      .gte("date", weekStart)
+      .lte("date", weekEndStr)
+      .order("date", { ascending: true }),
+    supabase
+      .from("daily_checkins")
+      .select("*")
+      .eq("user_id", session.user.email)
+      .gte("date", lastWeekStart)
+      .lte("date", lastWeekEndStr)
+      .order("date", { ascending: true }),
+  ]);
 
   return NextResponse.json({
-    plan: data ?? null,
+    plan: currentPlanRes.data ?? null,
     weekStart,
-    checkins: checkins ?? [],
+    checkins: currentCheckinsRes.data ?? [],
+    lastWeek: {
+      plan: lastPlanRes.data ?? null,
+      weekStart: lastWeekStart,
+      checkins: lastCheckinsRes.data ?? [],
+    },
   });
 }
 
