@@ -112,8 +112,8 @@ export async function POST(req: NextRequest) {
       resting_hr: "resting_hr",
       heart_rate_variability: "hrv",
       heartRateVariability: "hrv",
+      heartRateVariabilitySDNN: "hrv",
       hrv: "hrv",
-      heart_rate: "hrv", // fallback mapping
       walking_running_distance: "walking_running_distance",
     };
 
@@ -126,7 +126,8 @@ export async function POST(req: NextRequest) {
       if (!field || !Array.isArray(metric.data)) continue;
 
       for (const point of metric.data) {
-        const date = typeof point.date === "string" ? point.date.split("T")[0] : null;
+        // Health Auto Export uses "YYYY-MM-DD HH:MM" (space) not ISO "T" separator
+        const date = typeof point.date === "string" ? point.date.slice(0, 10) : null;
         if (!date || typeof point.qty !== "number") continue;
 
         if (!dateMap.has(date)) {
@@ -151,13 +152,16 @@ export async function POST(req: NextRequest) {
     }
 
     if (dateMap.size > 0) {
-      rows = Array.from(dateMap.entries()).map(([date, data]) => ({
-        user_id: userEmail,
-        date,
-        steps: data.steps !== null ? Math.round(data.steps) : null,
-        resting_hr: data.resting_hr !== null ? Math.round(data.resting_hr) : null,
-        hrv: data.hrv !== null ? Math.round(data.hrv) : null,
-      }));
+      rows = Array.from(dateMap.entries()).map(([date, data]) => {
+        console.log(`[apple-health/webhook] date=${date} steps=${data.steps} resting_hr=${data.resting_hr} hrv=${data.hrv}`);
+        return {
+          user_id: userEmail,
+          date,
+          steps: data.steps !== null ? Math.round(data.steps) : null,
+          resting_hr: data.resting_hr !== null ? Math.round(data.resting_hr) : null,
+          hrv: data.hrv !== null ? Math.round(data.hrv) : null,
+        };
+      });
     }
   }
 
