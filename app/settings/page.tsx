@@ -5,6 +5,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import { useSearchParams } from "next/navigation";
 
 type WhoopStatus = "loading" | "connected" | "disconnected" | "error";
+type WorkCalStatus = "loading" | "connected" | "disconnected";
 
 function SectionCard({
   title,
@@ -53,6 +54,7 @@ function SettingsContent() {
 
   // Derive initial state directly from URL params (synchronous — no race)
   const urlWhoop = searchParams.get("whoop");
+  const urlWorkCal = searchParams.get("work_calendar");
   const urlReason = searchParams.get("reason");
 
   const [whoopStatus, setWhoopStatus] = useState<WhoopStatus>(() => {
@@ -70,6 +72,20 @@ function SettingsContent() {
 
   const [disconnecting, setDisconnecting] = useState(false);
 
+  // Work Calendar state
+  const [workCalStatus, setWorkCalStatus] = useState<WorkCalStatus>(() => {
+    if (urlWorkCal === "connected") return "connected";
+    return "loading";
+  });
+  const [workCalEmail, setWorkCalEmail] = useState<string | null>(null);
+  const [workCalMessage, setWorkCalMessage] = useState<string | null>(() => {
+    if (urlWorkCal === "connected") return "Work calendar connected successfully.";
+    if (urlWorkCal === "error")
+      return `Work calendar connection failed: ${urlReason ?? "unknown error"}`;
+    return null;
+  });
+  const [disconnectingWorkCal, setDisconnectingWorkCal] = useState(false);
+
   // Check Supabase-backed status only when the URL gives no answer
   const checkWhoopStatus = useCallback(async () => {
     setWhoopStatus("loading");
@@ -80,6 +96,19 @@ function SettingsContent() {
     }
     const { connected } = await res.json();
     setWhoopStatus(connected ? "connected" : "disconnected");
+  }, []);
+
+  const checkWorkCalStatus = useCallback(async () => {
+    setWorkCalStatus("loading");
+    try {
+      const res = await fetch("/api/work-calendar/status");
+      if (!res.ok) { setWorkCalStatus("disconnected"); return; }
+      const data = await res.json();
+      setWorkCalStatus(data.connected ? "connected" : "disconnected");
+      if (data.email) setWorkCalEmail(data.email);
+    } catch {
+      setWorkCalStatus("disconnected");
+    }
   }, []);
 
   useEffect(() => {
@@ -93,12 +122,30 @@ function SettingsContent() {
     }
   }, [status, urlWhoop, checkWhoopStatus]);
 
+  useEffect(() => {
+    if (urlWorkCal === "connected" || urlWorkCal === "error") return;
+    if (status === "authenticated") {
+      checkWorkCalStatus();
+    } else if (status === "unauthenticated") {
+      setWorkCalStatus("disconnected");
+    }
+  }, [status, urlWorkCal, checkWorkCalStatus]);
+
   const handleDisconnectWhoop = async () => {
     setDisconnecting(true);
     await fetch("/api/whoop/data", { method: "DELETE" });
     setWhoopStatus("disconnected");
     setWhoopMessage("Whoop disconnected.");
     setDisconnecting(false);
+  };
+
+  const handleDisconnectWorkCal = async () => {
+    setDisconnectingWorkCal(true);
+    await fetch("/api/work-calendar/disconnect", { method: "DELETE" });
+    setWorkCalStatus("disconnected");
+    setWorkCalEmail(null);
+    setWorkCalMessage("Work calendar disconnected.");
+    setDisconnectingWorkCal(false);
   };
 
   return (
@@ -115,6 +162,12 @@ function SettingsContent() {
       {whoopMessage && (
         <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-900">
           {whoopMessage}
+        </div>
+      )}
+
+      {workCalMessage && (
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 px-4 py-3 text-sm text-neutral-600 dark:text-neutral-300 bg-neutral-50 dark:bg-neutral-900">
+          {workCalMessage}
         </div>
       )}
 
@@ -164,6 +217,45 @@ function SettingsContent() {
             </p>
           </div>
           <StatusBadge connected={!!session} />
+        </div>
+      </SectionCard>
+
+      {/* Work Calendar */}
+      <SectionCard title="Work Calendar">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-neutral-700 dark:text-neutral-300">
+              Full event details from philipp@vetsak.com
+            </p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-0.5">
+              {workCalStatus === "connected" && workCalEmail
+                ? `Connected as ${workCalEmail}`
+                : "Connect to see work events (not just busy blocks)"}
+            </p>
+          </div>
+          <div className="shrink-0 ml-4">
+            {workCalStatus === "loading" ? (
+              <div className="h-5 w-20 bg-neutral-100 dark:bg-neutral-800 rounded animate-pulse" />
+            ) : workCalStatus === "connected" ? (
+              <div className="flex items-center gap-3">
+                <StatusBadge connected />
+                <button
+                  onClick={handleDisconnectWorkCal}
+                  disabled={disconnectingWorkCal}
+                  className="text-xs text-neutral-400 dark:text-neutral-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                >
+                  {disconnectingWorkCal ? "Disconnecting…" : "Disconnect"}
+                </button>
+              </div>
+            ) : (
+              <a
+                href="/api/work-calendar/auth"
+                className="inline-block text-xs font-medium px-3 py-1.5 bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 rounded-lg hover:opacity-90 transition-opacity"
+              >
+                Connect Work Calendar
+              </a>
+            )}
+          </div>
         </div>
       </SectionCard>
 

@@ -10,6 +10,7 @@ export interface CalendarEvent {
   colorId?: string;
   attendees?: { email: string; responseStatus: string }[];
   isBusy?: boolean; // free/busy-only block from work calendar
+  isWork?: boolean; // full event from connected work calendar
 }
 
 export interface CalendarResponse {
@@ -114,6 +115,71 @@ export function formatEventTime(event: CalendarEvent): string {
 }
 
 const WORK_CALENDAR_ID = "philipp@vetsak.com";
+
+/** Refresh a work calendar access token using its stored refresh_token */
+export async function refreshWorkCalendarToken(refreshToken: string): Promise<{
+  access_token: string;
+  expires_at: number;
+} | null> {
+  try {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID!,
+        client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return {
+      access_token: data.access_token,
+      expires_at: Math.floor(Date.now() / 1000) + (data.expires_in ?? 3600),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch full work calendar events using a dedicated work access token */
+export async function fetchWorkCalendarEvents(
+  workAccessToken: string
+): Promise<CalendarEvent[]> {
+  const now = new Date();
+  const in7Days = new Date(now.getTime() + 7 * 86_400_000);
+
+  const params = new URLSearchParams({
+    calendarId: WORK_CALENDAR_ID,
+    timeMin: now.toISOString(),
+    timeMax: in7Days.toISOString(),
+    singleEvents: "true",
+    orderBy: "startTime",
+    maxResults: "50",
+  });
+
+  try {
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(WORK_CALENDAR_ID)}/events?${params}`,
+      {
+        headers: {
+          Authorization: `Bearer ${workAccessToken}`,
+          "Content-Type": "application/json",
+        },
+        next: { revalidate: 300 },
+      }
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.items ?? []).map((e: CalendarEvent) => ({
+      ...e,
+      isWork: true,
+    }));
+  } catch {
+    return [];
+  }
+}
 
 export async function fetchCalendarEvents(
   accessToken: string

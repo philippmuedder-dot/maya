@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
 interface Marker {
   name: string;
@@ -57,6 +65,270 @@ function statusBadge(status: string) {
   if (status === "low") return `${base} bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400`;
   return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`;
 }
+
+// ─── Trend Helpers ─────────────────────────────────────────────────────────────
+
+interface TrendPoint {
+  date: string;
+  dateLabel: string;
+  value: number;
+  status: "normal" | "low" | "high";
+}
+
+interface MarkerTrendData {
+  name: string;
+  unit: string;
+  category: string;
+  points: TrendPoint[];
+  latest: TrendPoint;
+  previous: TrendPoint;
+  delta: number;
+  deltaPercent: number;
+  trend: "improving" | "worsening" | "stable";
+}
+
+function parseNumericValue(val: string): number | null {
+  const cleaned = val.replace(/[<>~≤≥]/g, "").trim();
+  const n = parseFloat(cleaned);
+  return isNaN(n) ? null : n;
+}
+
+/** Determine if movement is "improving" based on status transitions */
+function determineTrend(
+  prev: TrendPoint,
+  latest: TrendPoint,
+  deltaPercent: number
+): "improving" | "worsening" | "stable" {
+  if (Math.abs(deltaPercent) < 5) return "stable";
+
+  // If status improved (was out of range, now normal)
+  if (prev.status !== "normal" && latest.status === "normal") return "improving";
+  // If status worsened (was normal, now out of range)
+  if (prev.status === "normal" && latest.status !== "normal") return "worsening";
+
+  // Both out of range but moving toward normal = improving
+  // Both normal — just track direction as stable
+  if (latest.status === "normal" && prev.status === "normal") return "stable";
+
+  return Math.abs(deltaPercent) >= 5 ? "stable" : "stable";
+}
+
+function buildTrendData(results: BloodworkResult[]): Record<string, MarkerTrendData> {
+  // Sort results oldest → newest
+  const sorted = [...results].sort((a, b) => {
+    const aDate = a.test_date ?? a.created_at;
+    const bDate = b.test_date ?? b.created_at;
+    return aDate.localeCompare(bDate);
+  });
+
+  const markerMap: Record<string, TrendPoint[]> = {};
+  const markerMeta: Record<string, { unit: string; name: string }> = {};
+
+  for (const result of sorted) {
+    const dateStr = result.test_date ?? result.created_at.split("T")[0];
+    const dateLabel = new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "2-digit",
+    });
+
+    for (const m of result.markers) {
+      const numeric = parseNumericValue(m.value);
+      if (numeric === null) continue;
+
+      const key = m.name.toLowerCase().trim();
+      if (!markerMap[key]) markerMap[key] = [];
+      if (!markerMeta[key]) markerMeta[key] = { unit: m.unit, name: m.name };
+
+      markerMap[key].push({ date: dateStr, dateLabel, value: numeric, status: m.status });
+    }
+  }
+
+  const trendData: Record<string, MarkerTrendData> = {};
+
+  for (const [key, points] of Object.entries(markerMap)) {
+    if (points.length < 2) continue;
+
+    const latest = points[points.length - 1];
+    const previous = points[points.length - 2];
+    const delta = latest.value - previous.value;
+    const deltaPercent = previous.value !== 0
+      ? (delta / Math.abs(previous.value)) * 100
+      : 0;
+
+    const trend = determineTrend(previous, latest, deltaPercent);
+
+    const mockMarker: Marker = {
+      name: markerMeta[key].name,
+      value: "",
+      unit: markerMeta[key].unit,
+      reference_range: "",
+      status: latest.status,
+    };
+
+    trendData[key] = {
+      name: markerMeta[key].name,
+      unit: markerMeta[key].unit,
+      category: categorize(mockMarker),
+      points,
+      latest,
+      previous,
+      delta,
+      deltaPercent,
+      trend,
+    };
+  }
+
+  return trendData;
+}
+
+// ─── Trend Chart Component ─────────────────────────────────────────────────────
+
+function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
+  const isUp = data.delta > 0;
+  const arrow = isUp ? "↑" : "↓";
+  const absPct = Math.abs(data.deltaPercent).toFixed(1);
+
+  const trendStyle = {
+    improving: "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20",
+    worsening: "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20",
+    stable: "text-neutral-500 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800",
+  }[data.trend];
+
+  const trendLabel = {
+    improving: "Getting better",
+    worsening: "Getting worse",
+    stable: "Stable",
+  }[data.trend];
+
+  const lineColor = data.latest.status === "normal" ? "#10b981" : "#ef4444";
+
+  return (
+    <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700 space-y-3">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            {data.name}
+          </p>
+          <p className="text-xs text-neutral-400">{data.unit}</p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${trendStyle}`}>
+            {trendLabel}
+          </span>
+        </div>
+      </div>
+
+      {/* Latest vs previous */}
+      <div className="flex items-baseline gap-3">
+        <span className={`text-lg font-bold font-mono ${statusColor(data.latest.status)}`}>
+          {data.latest.value}
+          <span className="text-xs font-normal text-neutral-400 ml-1">{data.unit}</span>
+        </span>
+        <span className={`text-xs font-medium ${isUp ? "text-blue-500" : "text-purple-500"}`}>
+          {arrow} {absPct}%
+        </span>
+        <span className="text-xs text-neutral-400">
+          from {data.previous.value} ({data.previous.dateLabel})
+        </span>
+      </div>
+
+      {/* Line chart */}
+      <div className="h-24">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data.points} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
+            <XAxis
+              dataKey="dateLabel"
+              tick={{ fontSize: 10, fill: "#9ca3af" }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis hide domain={["auto", "auto"]} />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "rgba(17,17,17,0.9)",
+                border: "none",
+                borderRadius: "8px",
+                fontSize: "12px",
+                color: "#f5f5f5",
+              }}
+              formatter={(value: number) => [`${value} ${data.unit}`, data.name]}
+              labelFormatter={(label: string) => label}
+            />
+            <Line
+              type="monotone"
+              dataKey="value"
+              stroke={lineColor}
+              strokeWidth={2}
+              dot={(props) => {
+                const { cx, cy, payload } = props;
+                const color = payload.status === "normal" ? "#10b981" : "#ef4444";
+                return (
+                  <circle
+                    key={`dot-${cx}-${cy}`}
+                    cx={cx}
+                    cy={cy}
+                    r={4}
+                    fill={color}
+                    stroke="white"
+                    strokeWidth={1.5}
+                  />
+                );
+              }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ─── Trend Section (grouped by category) ──────────────────────────────────────
+
+function TrendSection({ results }: { results: BloodworkResult[] }) {
+  const trendData = buildTrendData(results);
+  const markers = Object.values(trendData);
+
+  if (markers.length === 0) return null;
+
+  // Group by category
+  const byCategory: Record<string, MarkerTrendData[]> = {};
+  for (const m of markers) {
+    if (!byCategory[m.category]) byCategory[m.category] = [];
+    byCategory[m.category].push(m);
+  }
+
+  const order = [...Object.keys(CATEGORIES), "Other"];
+  const sortedCats = order.filter((c) => byCategory[c]);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-2">
+        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          Trends Across Uploads
+        </h2>
+        <span className="text-xs text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full">
+          {markers.length} marker{markers.length !== 1 ? "s" : ""} tracked
+        </span>
+      </div>
+      {sortedCats.map((cat) => (
+        <div key={cat}>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-3">
+            {cat}
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {byCategory[cat].map((m) => (
+              <MarkerTrendCard key={m.name} data={m} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Marker Table (single result view) ─────────────────────────────────────────
 
 function MarkerTable({ markers }: { markers: Marker[] }) {
   const grouped: Record<string, Marker[]> = {};
@@ -225,6 +497,7 @@ export default function BloodworkPage() {
   const [selected, setSelected] = useState<BloodworkResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"latest" | "trends">("latest");
 
   // Pending = extracted but not yet saved to DB
   const [pending, setPending] = useState<PendingResult | null>(null);
@@ -264,7 +537,6 @@ export default function BloodworkPage() {
       if (!res.ok) {
         setUploadError(data.error ?? "Upload failed.");
       } else {
-        // Show confirm panel — do not save to DB yet
         setPending(data as PendingResult);
       }
     } catch {
@@ -312,6 +584,8 @@ export default function BloodworkPage() {
     setPending(null);
     setSaveError(null);
   }
+
+  const hasTrends = results.length >= 2;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -365,7 +639,6 @@ export default function BloodworkPage() {
         </div>
       )}
 
-      {/* Step 2: Confirm panel — shown after successful extraction, before DB save */}
       {pending && (
         <>
           <ConfirmPanel
@@ -393,60 +666,96 @@ export default function BloodworkPage() {
 
       {results.length > 0 && (
         <div className="space-y-6">
-          {results.length > 1 && (
-            <div className="flex gap-2 flex-wrap">
-              {results.map((r) => (
-                <button
-                  key={r.id}
-                  onClick={() => setSelected(r)}
-                  className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                    selected?.id === r.id
-                      ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-transparent"
-                      : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400"
-                  }`}
-                >
-                  {r.test_date
-                    ? new Date(r.test_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                    : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  {r.lab_name ? ` — ${r.lab_name}` : ""}
-                  {!r.test_date && <span className="ml-1 opacity-60">(no test date)</span>}
-                </button>
-              ))}
+          {/* Tab bar — only show if 2+ results */}
+          {hasTrends && (
+            <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-fit">
+              <button
+                onClick={() => setActiveTab("latest")}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === "latest"
+                    ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
+                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                }`}
+              >
+                Latest Results
+              </button>
+              <button
+                onClick={() => setActiveTab("trends")}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  activeTab === "trends"
+                    ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
+                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
+                }`}
+              >
+                Trends
+              </button>
             </div>
           )}
 
-          {selected && (
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-              <div className="flex items-baseline justify-between mb-4">
-                <div>
-                  <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                    {selected.lab_name || "Lab Results"}
-                  </h2>
-                  {selected.test_date ? (
-                    <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                      {new Date(selected.test_date).toLocaleDateString("en-US", {
-                        month: "long",
-                        day: "numeric",
-                        year: "numeric",
-                      })}
-                    </p>
+          {/* Latest Results tab */}
+          {activeTab === "latest" && (
+            <>
+              {results.length > 1 && (
+                <div className="flex gap-2 flex-wrap">
+                  {results.map((r) => (
+                    <button
+                      key={r.id}
+                      onClick={() => setSelected(r)}
+                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                        selected?.id === r.id
+                          ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-transparent"
+                          : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400"
+                      }`}
+                    >
+                      {r.test_date
+                        ? new Date(r.test_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                        : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      {r.lab_name ? ` — ${r.lab_name}` : ""}
+                      {!r.test_date && <span className="ml-1 opacity-60">(no test date)</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {selected && (
+                <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
+                  <div className="flex items-baseline justify-between mb-4">
+                    <div>
+                      <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                        {selected.lab_name || "Lab Results"}
+                      </h2>
+                      {selected.test_date ? (
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+                          {new Date(selected.test_date).toLocaleDateString("en-US", {
+                            month: "long",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                        </p>
+                      ) : (
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">No test date recorded</p>
+                      )}
+                    </div>
+                    <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                      <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Normal</span>
+                      <span><span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1" />Low</span>
+                      <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />High</span>
+                    </div>
+                  </div>
+
+                  {selected.markers.length === 0 ? (
+                    <p className="text-sm text-neutral-400">No markers extracted from this file.</p>
                   ) : (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">No test date recorded</p>
+                    <MarkerTable markers={selected.markers} />
                   )}
                 </div>
-                <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400">
-                  <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Normal</span>
-                  <span><span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1" />Low</span>
-                  <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />High</span>
-                </div>
-              </div>
-
-              {selected.markers.length === 0 ? (
-                <p className="text-sm text-neutral-400">No markers extracted from this file.</p>
-              ) : (
-                <MarkerTable markers={selected.markers} />
               )}
-            </div>
+            </>
+          )}
+
+          {/* Trends tab */}
+          {activeTab === "trends" && hasTrends && (
+            <TrendSection results={results} />
           )}
         </div>
       )}

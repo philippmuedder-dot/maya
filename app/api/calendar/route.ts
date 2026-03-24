@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { fetchCalendarEvents } from "@/lib/googleCalendar";
+import { fetchCalendarEvents, fetchWorkCalendarEvents, refreshWorkCalendarToken } from "@/lib/googleCalendar";
+import { createServiceClient } from "@/lib/supabase";
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -24,6 +25,60 @@ export async function GET() {
     );
   }
 
+  // Fetch personal calendar events
   const result = await fetchCalendarEvents(session.accessToken);
+
+  // Attempt to fetch work calendar events if token exists
+  if (session.user?.email) {
+    try {
+      const supabase = createServiceClient();
+      const { data: workToken } = await supabase
+        .from("work_calendar_tokens")
+        .select("access_token, refresh_token, expires_at")
+        .eq("user_id", session.user.email)
+        .single();
+
+      if (workToken) {
+        let accessToken = workToken.access_token;
+
+        // Refresh if expired (with 60s buffer)
+        const needsRefresh =
+          workToken.expires_at &&
+          Date.now() / 1000 > workToken.expires_at - 60;
+
+        if (needsRefresh && workToken.refresh_token) {
+          const refreshed = await refreshWorkCalendarToken(workToken.refresh_token);
+          if (refreshed) {
+            accessToken = refreshed.access_token;
+            // Update stored token
+            await supabase
+              .from("work_calendar_tokens")
+              .update({
+                access_token: refreshed.access_token,
+                expires_at: refreshed.expires_at,
+                updated_at: new Date().toISOString(),
+              })
+              .eq("user_id", session.user.email);
+          }
+        }
+
+        const workEvents = await fetchWorkCalendarEvents(accessToken);
+
+        if (workEvents.length > 0) {
+          // Merge: replace busy blocks with full work events
+          const personalOnly = result.events.filter((e) => !e.isBusy);
+          const merged = [...personalOnly, ...workEvents].sort((a, b) => {
+            const aTime = a.start.dateTime ?? a.start.date ?? "";
+            const bTime = b.start.dateTime ?? b.start.date ?? "";
+            return aTime.localeCompare(bTime);
+          });
+          result.events = merged;
+        }
+      }
+    } catch {
+      // Non-critical — return personal events only
+    }
+  }
+
   return NextResponse.json(result);
 }
