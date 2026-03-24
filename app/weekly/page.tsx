@@ -126,7 +126,7 @@ export default function WeeklyPage() {
         }),
       });
       if (res.ok) {
-        setSyncedIdxs((prev) => new Set([...prev, globalIdx]));
+        setSyncedIdxs((prev) => new Set(Array.from(prev).concat(globalIdx)));
       }
     } catch (err) {
       console.error("Failed to sync to calendar:", err);
