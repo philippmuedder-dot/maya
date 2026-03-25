@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  const redirectUri = `${process.env.NEXTAUTH_URL}/api/work-calendar/callback`;
+  const redirectUri = "https://maya-lilac.vercel.app/api/work-calendar/callback";
 
   // Exchange code for tokens
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {

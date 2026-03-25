@@ -9,7 +9,7 @@ export async function GET() {
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID!;
-  const redirectUri = `${process.env.NEXTAUTH_URL}/api/work-calendar/callback`;
+  const redirectUri = "https://maya-lilac.vercel.app/api/work-calendar/callback";
 
   const params = new URLSearchParams({
     client_id: clientId,
