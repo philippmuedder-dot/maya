@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase";
 import { fetchCalendarEvents, getTodayEvents } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import { MAYA_SYSTEM_PROMPT } from "@/prompts/system";
+import { getUserMemoryContext, extractMemoryFromRecentChat } from "@/lib/userMemory";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
@@ -72,7 +73,7 @@ export async function POST(req: NextRequest) {
   });
 
   // Gather context in parallel
-  const [checkinHistory, whoopData, calendarData, supplements] =
+  const [checkinHistory, whoopData, calendarData, supplements, dbMemoryContext] =
     await Promise.all([
       supabase
         .from("daily_checkins")
@@ -93,6 +94,7 @@ export async function POST(req: NextRequest) {
         .eq("user_id", session.user.email)
         .eq("active", true)
         .then(({ data }) => data ?? []),
+      getUserMemoryContext(session.user.email),
     ]);
 
   // Build context block
@@ -148,7 +150,8 @@ export async function POST(req: NextRequest) {
 Current context (${new Date().toISOString().split("T")[0]}):
 ${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`
     + "\n\n---\n## Who you are talking to:\n" + philippContext
-    + "\n\n## Long-term memory:\n" + memoryContext;
+    + "\n\n## Long-term memory:\n" + memoryContext
+    + dbMemoryContext;
 
   // Get recent chat history for conversation context
   const { data: recentMessages } = await supabase
@@ -200,6 +203,15 @@ ${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`
           role: "assistant",
           content: fullResponse,
         });
+
+        // Trigger memory extraction after every 10th message (fire-and-forget)
+        const { count } = await supabase
+          .from("chat_messages")
+          .select("*", { count: "exact", head: true })
+          .eq("user_id", session.user.email);
+        if (count && count % 10 === 0) {
+          extractMemoryFromRecentChat(session.user.email).catch(() => {});
+        }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         controller.close();

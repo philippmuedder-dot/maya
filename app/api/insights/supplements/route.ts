@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { createServiceClient } from "@/lib/supabase";
 import Anthropic from "@anthropic-ai/sdk";
+import { getUserMemoryContext } from "@/lib/userMemory";
 import fs from "fs";
 import path from "path";
 
@@ -71,13 +72,15 @@ Be specific and data-driven. Only include insights where you see actual patterns
 Respond with ONLY valid JSON. No markdown.`;
 
   try {
+    const dbMemoryContext = await getUserMemoryContext(session.user.email);
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
       model: "claude-sonnet-4-20250514",
       max_tokens: 1024,
       system: "You are MAYA, a personal health intelligence system."
         + "\n\n---\n## Who you are talking to:\n" + philippContext
-        + "\n\n## Long-term memory:\n" + memoryContext,
+        + "\n\n## Long-term memory:\n" + memoryContext
+        + dbMemoryContext,
       messages: [{ role: "user", content: prompt }],
     });
 
