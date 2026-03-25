@@ -43,6 +43,7 @@ interface Checkin {
   stress_level: number | null;
   mood: string | null;
   creative_energy: string | null;
+  financial_stress: number | null;
 }
 
 interface LastWeekData {
@@ -72,7 +73,16 @@ function computeStats(checkins: Checkin[], plan: WeeklyPlan | null) {
   const completionPct =
     totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-  return { avgStress, topMood, completedTasks, totalTasks, completionPct };
+  const fsCheckins = checkins.filter((c) => c.financial_stress != null);
+  const avgFinancialStress =
+    fsCheckins.length > 0
+      ? (
+          fsCheckins.reduce((sum, c) => sum + (c.financial_stress ?? 0), 0) /
+          fsCheckins.length
+        ).toFixed(1)
+      : null;
+
+  return { avgStress, topMood, completedTasks, totalTasks, completionPct, avgFinancialStress };
 }
 
 function formatWeekRange(weekStart: string) {
@@ -282,7 +292,7 @@ export default function WeeklyPage() {
             <div className="space-y-4 pl-6 border-l-2 border-neutral-200 dark:border-neutral-700">
               {/* Last week stats */}
               {lastWeekStats && (
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
                     <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
                       Avg Stress
@@ -290,6 +300,15 @@ export default function WeeklyPage() {
                     <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
                       {lastWeekStats.avgStress}
                       <span className="text-xs font-normal text-neutral-400">/10</span>
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
+                    <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                      Fin. Stress
+                    </p>
+                    <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
+                      {lastWeekStats.avgFinancialStress ?? "—"}
+                      {lastWeekStats.avgFinancialStress && <span className="text-xs font-normal text-neutral-400">/10</span>}
                     </p>
                   </div>
                   <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
@@ -500,7 +519,7 @@ export default function WeeklyPage() {
             )}
 
             {/* This Week Stats */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
                 <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
                   Avg Stress
@@ -508,6 +527,21 @@ export default function WeeklyPage() {
                 <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
                   {thisWeekStats.avgStress}
                   <span className="text-xs font-normal text-neutral-400">/10</span>
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
+                <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
+                  Fin. Stress
+                </p>
+                <p className={`text-lg font-bold ${
+                  thisWeekStats.avgFinancialStress && parseFloat(thisWeekStats.avgFinancialStress) >= 7
+                    ? "text-red-600 dark:text-red-400"
+                    : thisWeekStats.avgFinancialStress && parseFloat(thisWeekStats.avgFinancialStress) >= 5
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-neutral-900 dark:text-neutral-100"
+                }`}>
+                  {thisWeekStats.avgFinancialStress ?? "—"}
+                  {thisWeekStats.avgFinancialStress && <span className="text-xs font-normal text-neutral-400">/10</span>}
                 </p>
               </div>
               <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">

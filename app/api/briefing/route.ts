@@ -39,6 +39,24 @@ energy is coming back and amplifying it, flagging negative rational loops, and
 redirecting to gut-led (Sacral) responses. Never toxic positivity. Never pushing.
 Always meeting him where he is.`;
 
+/** Returns the current UTC offset in hours for a given IANA timezone */
+function getUtcOffsetHours(tz: string): number {
+  try {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      timeZoneName: "shortOffset",
+    }).formatToParts(new Date());
+    const offsetStr = parts.find((p) => p.type === "timeZoneName")?.value ?? "GMT+0";
+    const match = offsetStr.match(/GMT([+-]\d{1,2})(?::(\d{2}))?/);
+    if (!match) return 0;
+    const hours = parseInt(match[1], 10);
+    const minutes = match[2] ? parseInt(match[2], 10) / 60 : 0;
+    return hours + (hours < 0 ? -minutes : minutes);
+  } catch {
+    return 0;
+  }
+}
+
 // GET — fetch or generate today's briefing
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -73,6 +91,14 @@ export async function GET() {
     return NextResponse.json({ needsCheckin: true });
   }
 
+  // Fetch user preferences (timezone)
+  const { data: userPrefs } = await supabase
+    .from("user_preferences")
+    .select("current_timezone")
+    .eq("user_id", session.user.email)
+    .single();
+  const userTimezone = userPrefs?.current_timezone ?? "Europe/Berlin";
+
   // Gather all context data in parallel
   const [calendarData, whoopData, supplementsData] = await Promise.all([
     // Calendar
@@ -104,7 +130,7 @@ export async function GET() {
         .limit(14),
       supabase
         .from("daily_checkins")
-        .select("date, stress_level, top_stressor")
+        .select("date, stress_level, top_stressor, financial_stress, financial_stressor")
         .eq("user_id", session.user.email)
         .order("date", { ascending: false })
         .limit(7),
@@ -132,6 +158,44 @@ export async function GET() {
         .map((d: { top_stressor: string | null }) => d.top_stressor)
         .slice(0, 3);
       contextParts.push(`Recent avg stress: ${avgStress.toFixed(1)}/10. Common stressors: ${stressors.join(", ") || "none"}`);
+    }
+
+    // Financial stress from today's check-in (covers yesterday's state)
+    if (checkin.financial_stress != null && checkin.financial_stress >= 7) {
+      const stressorNote = checkin.financial_stressor
+        ? ` (${checkin.financial_stressor})`
+        : "";
+      contextParts.push(
+        `IMPORTANT: Financial stress was high yesterday — ${checkin.financial_stress}/10${stressorNote}. Protect energy today and avoid non-critical financial decisions.`
+      );
+    }
+
+    // Recent financial stress trend (if present in history)
+    if (recentCheckins) {
+      const fsCheckins = recentCheckins.filter(
+        (d: { financial_stress: number | null }) => d.financial_stress != null
+      );
+      if (fsCheckins.length >= 3) {
+        const avgFs = fsCheckins.reduce((sum: number, d: { financial_stress: number }) => sum + d.financial_stress, 0) / fsCheckins.length;
+        if (avgFs >= 6) {
+          contextParts.push(`Ongoing financial stress pattern: avg ${avgFs.toFixed(1)}/10 over last ${fsCheckins.length} check-ins — acknowledge and protect recovery.`);
+        }
+      }
+    }
+
+    // Jet lag / timezone context
+    if (userTimezone !== "Europe/Berlin") {
+      const homeOffset = getUtcOffsetHours("Europe/Berlin");
+      const currentOffset = getUtcOffsetHours(userTimezone);
+      const diff = Math.abs(homeOffset - currentOffset);
+      const tzLabel = userTimezone.replace("_", " ").split("/").pop() ?? userTimezone;
+      if (diff >= 4) {
+        contextParts.push(
+          `TRAVEL ALERT: Philipp is currently in ${tzLabel} timezone (UTC${currentOffset >= 0 ? "+" : ""}${currentOffset}). His body is still on Berlin time (UTC${homeOffset >= 0 ? "+" : ""}${homeOffset}). Jet lag offset: ${diff} hours. Include sleep window adjustment guidance — shift bedtime by 30-60 min per day toward local time. Protect HRV and recovery during adjustment.`
+        );
+      } else {
+        contextParts.push(`Current timezone: ${tzLabel} (${diff}h from Berlin — minor adjustment, no jet lag guidance needed).`);
+      }
     }
 
     // Decision patterns
@@ -178,11 +242,15 @@ export async function GET() {
       )
       .join(", ") || "none";
 
+  const financialStressLine = checkin.financial_stress != null
+    ? `\nFinancial stress yesterday: ${checkin.financial_stress}/10${checkin.financial_stressor ? `. Stressor: ${checkin.financial_stressor}` : ""}`
+    : "";
+
   const userPrompt = `Today is ${today}.
 Recovery: ${recoveryScore}%, HRV: ${hrv}ms, Sleep: ${sleepHours}hrs
 Calendar load today: ${eventCount} events: ${eventTitles}
 Stress yesterday: ${checkin.stress_level}/10. Top stressor: ${checkin.top_stressor || "none"}
-Mood: ${checkin.mood}. Creative energy: ${checkin.creative_energy}
+Mood: ${checkin.mood}. Creative energy: ${checkin.creative_energy}${financialStressLine}
 Active supplements: ${supplementList}${insightContext}
 Generate morning briefing with exactly these sections as JSON:
 {

@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { stress_level, top_stressor, mood, creative_energy, feeling_is_mine } = body;
+  const { stress_level, top_stressor, mood, creative_energy, feeling_is_mine, financial_stress, financial_stressor } = body;
 
   const supabase = createServiceClient();
   const today = new Date().toISOString().split("T")[0];
@@ -52,6 +52,8 @@ export async function POST(req: NextRequest) {
         mood,
         creative_energy,
         feeling_is_mine: feeling_is_mine ?? null,
+        financial_stress: financial_stress ?? null,
+        financial_stressor: financial_stressor || null,
       },
       { onConflict: "user_id,date" }
     )

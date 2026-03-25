@@ -28,8 +28,11 @@ export default function DailyCheckinModal({ onComplete }: Props) {
   const [mood, setMood] = useState<string>("");
   const [creative, setCreative] = useState<string>("");
   const [feelingIsMine, setFeelingIsMine] = useState(false);
+  const [financialStress, setFinancialStress] = useState(3);
+  const [financialStressor, setFinancialStressor] = useState("");
   const [saving, setSaving] = useState(false);
-  const [step, setStep] = useState(0); // 0=stress, 1=mood, 2=creative, 3=tasks, 4=solar plexus (conditional)
+  // 0=stress, 1=mood, 2=creative, 3=tasks, 4=financial stress, 5=solar plexus (conditional)
+  const [step, setStep] = useState(0);
 
   // Top 3 tasks
   const [task1, setTask1] = useState("");
@@ -66,8 +69,8 @@ export default function DailyCheckinModal({ onComplete }: Props) {
   }, []);
 
   const showSolarPlexus = stress > 6;
-  // Steps: 0=stress, 1=mood, 2=creative, 3=tasks, then optionally 4=solar plexus
-  const totalSteps = showSolarPlexus ? 5 : 4;
+  // Steps: 0=stress, 1=mood, 2=creative, 3=tasks, 4=financial, [5=solar plexus if high stress]
+  const totalSteps = showSolarPlexus ? 6 : 5;
 
   async function handleSubmit() {
     setSaving(true);
@@ -82,6 +85,8 @@ export default function DailyCheckinModal({ onComplete }: Props) {
           mood,
           creative_energy: creative,
           feeling_is_mine: showSolarPlexus ? feelingIsMine : null,
+          financial_stress: financialStress,
+          financial_stressor: financialStressor || null,
         }),
       });
 
@@ -119,11 +124,12 @@ export default function DailyCheckinModal({ onComplete }: Props) {
     if (step === 1) return mood !== "";
     if (step === 2) return creative !== "";
     if (step === 3) return true; // tasks are optional
+    if (step === 4) return true; // financial stress optional
     return true;
   }
 
   function next() {
-    if (step === 3 && !showSolarPlexus) {
+    if (step === 4 && !showSolarPlexus) {
       handleSubmit();
     } else if (step === totalSteps - 1) {
       handleSubmit();
@@ -302,7 +308,47 @@ export default function DailyCheckinModal({ onComplete }: Props) {
             </div>
           )}
 
-          {step === 4 && showSolarPlexus && (
+          {step === 4 && (
+            <div className="space-y-4">
+              <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Financial stress level yesterday?
+              </label>
+              <p className="text-xs text-neutral-400">
+                Optional — helps correlate financial pressure with your recovery and HRV.
+              </p>
+              <div className="space-y-2">
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={financialStress}
+                  onChange={(e) => setFinancialStress(parseInt(e.target.value, 10))}
+                  className="w-full accent-neutral-900 dark:accent-neutral-100"
+                />
+                <div className="flex justify-between text-xs text-neutral-400">
+                  <span>No pressure</span>
+                  <span className="text-lg font-bold text-neutral-900 dark:text-neutral-100">
+                    {financialStress}
+                  </span>
+                  <span>Maxed out</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-neutral-700 dark:text-neutral-300 mb-1">
+                  Main financial stressor (optional)
+                </label>
+                <input
+                  type="text"
+                  value={financialStressor}
+                  onChange={(e) => setFinancialStressor(e.target.value)}
+                  placeholder="e.g. late invoice, unexpected bill..."
+                  className="w-full px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-transparent text-sm focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+                />
+              </div>
+            </div>
+          )}
+
+          {step === 5 && showSolarPlexus && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                 <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
@@ -348,7 +394,7 @@ export default function DailyCheckinModal({ onComplete }: Props) {
           >
             {saving
               ? "Saving..."
-              : step === totalSteps - 1 || (step === 3 && !showSolarPlexus)
+              : step === totalSteps - 1 || (step === 4 && !showSolarPlexus)
                 ? "Generate Briefing"
                 : "Continue"}
           </button>

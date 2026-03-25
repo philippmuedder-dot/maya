@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import BreathworkSection from "@/components/BreathworkSection";
 
 interface SleepStages {
   light: number;
@@ -275,6 +276,9 @@ export default function SleepPage() {
           </p>
         )}
       </div>
+
+      {/* ─── HRV Training / Breathwork ──────────────────────────────────────────── */}
+      <BreathworkSection />
 
       {/* ─── Sleep Log (Last 7 Nights) ─────────────────────────────────────────── */}
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">

@@ -7,6 +7,14 @@ import { useSearchParams } from "next/navigation";
 type WhoopStatus = "loading" | "connected" | "disconnected" | "error";
 type WorkCalStatus = "loading" | "connected" | "disconnected";
 
+const TIMEZONE_OPTIONS = [
+  { label: "Ibiza (CET)", value: "Europe/Madrid" },
+  { label: "Germany (CET)", value: "Europe/Berlin" },
+  { label: "USA East (EST)", value: "America/New_York" },
+  { label: "USA West (PST)", value: "America/Los_Angeles" },
+  { label: "Other", value: "Other" },
+] as const;
+
 function SectionCard({
   title,
   children,
@@ -86,6 +94,11 @@ function SettingsContent() {
   });
   const [disconnectingWorkCal, setDisconnectingWorkCal] = useState(false);
 
+  // Timezone / travel mode
+  const [timezone, setTimezone] = useState("Europe/Berlin");
+  const [timezoneSaving, setTimezoneSaving] = useState(false);
+  const [timezoneSaved, setTimezoneSaved] = useState(false);
+
   // Check Supabase-backed status only when the URL gives no answer
   const checkWhoopStatus = useCallback(async () => {
     setWhoopStatus("loading");
@@ -130,6 +143,30 @@ function SettingsContent() {
       setWorkCalStatus("disconnected");
     }
   }, [status, urlWorkCal, checkWorkCalStatus]);
+
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    fetch("/api/user-preferences")
+      .then((r) => r.ok ? r.json() : null)
+      .then((d) => { if (d?.current_timezone) setTimezone(d.current_timezone); })
+      .catch(() => {});
+  }, [status]);
+
+  async function handleSaveTimezone() {
+    setTimezoneSaving(true);
+    setTimezoneSaved(false);
+    try {
+      await fetch("/api/user-preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_timezone: timezone }),
+      });
+      setTimezoneSaved(true);
+      setTimeout(() => setTimezoneSaved(false), 2500);
+    } finally {
+      setTimezoneSaving(false);
+    }
+  }
 
   const handleDisconnectWhoop = async () => {
     setDisconnecting(true);
@@ -293,6 +330,43 @@ function SettingsContent() {
               </a>
             )}
           </div>
+        </div>
+      </SectionCard>
+
+      {/* Current Location / Timezone */}
+      <SectionCard title="Current Location">
+        <div className="space-y-3">
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
+            Where are you based right now?
+          </p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            Used for calendar times, bedtime calculations, and jet lag guidance in your morning briefing.
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="flex-1 px-3 py-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-sm text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+            >
+              {TIMEZONE_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>
+                  {opt.label}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleSaveTimezone}
+              disabled={timezoneSaving}
+              className="px-4 py-2 rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 shrink-0"
+            >
+              {timezoneSaving ? "Saving…" : timezoneSaved ? "Saved" : "Save"}
+            </button>
+          </div>
+          {timezone !== "Europe/Berlin" && timezone !== "Europe/Madrid" && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 px-3 py-2 rounded-lg">
+              Jet lag mode active — your morning briefing will include sleep adjustment guidance.
+            </p>
+          )}
         </div>
       </SectionCard>
 
