@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase";
 import { fetchCalendarEvents, getTodayEvents, getBerlinDateStr } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import { getUserMemoryContext } from "@/lib/userMemory";
+import { getGeneticContext } from "@/lib/genetics";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
@@ -101,7 +102,7 @@ export async function GET() {
   const userTimezone = userPrefs?.current_timezone ?? "Europe/Berlin";
 
   // Gather all context data in parallel
-  const [calendarData, whoopData, supplementsData, dbMemoryContext] = await Promise.all([
+  const [calendarData, whoopData, supplementsData, dbMemoryContext, geneticContext] = await Promise.all([
     // Calendar
     session.accessToken
       ? fetchCalendarEvents(session.accessToken).catch(() => null)
@@ -118,6 +119,7 @@ export async function GET() {
       .eq("active", true)
       .then(({ data }) => data ?? []),
     getUserMemoryContext(session.user.email),
+    getGeneticContext(session.user.email),
   ]);
 
   // Gather learning engine context (simple queries, non-blocking)
@@ -285,7 +287,8 @@ Respond with ONLY valid JSON. No markdown, no explanation.`;
       system: BRIEFING_SYSTEM_PROMPT
         + "\n\n---\n## Who you are talking to:\n" + philippContext
         + "\n\n## Long-term memory:\n" + memoryContext
-        + dbMemoryContext,
+        + dbMemoryContext
+        + geneticContext,
       messages: [{ role: "user", content: userPrompt }],
     });
 

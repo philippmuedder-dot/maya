@@ -6,6 +6,7 @@ import { fetchCalendarEvents, getTodayEvents } from "@/lib/googleCalendar";
 import { getValidWhoopToken, fetchWhoopData } from "@/lib/whoop";
 import { MAYA_SYSTEM_PROMPT } from "@/prompts/system";
 import { getUserMemoryContext, extractMemoryFromRecentChat } from "@/lib/userMemory";
+import { getGeneticContext } from "@/lib/genetics";
 import Anthropic from "@anthropic-ai/sdk";
 import fs from "fs";
 import path from "path";
@@ -73,7 +74,7 @@ export async function POST(req: NextRequest) {
   });
 
   // Gather context in parallel
-  const [checkinHistory, whoopData, calendarData, supplements, dbMemoryContext] =
+  const [checkinHistory, whoopData, calendarData, supplements, dbMemoryContext, geneticContext] =
     await Promise.all([
       supabase
         .from("daily_checkins")
@@ -95,6 +96,7 @@ export async function POST(req: NextRequest) {
         .eq("active", true)
         .then(({ data }) => data ?? []),
       getUserMemoryContext(session.user.email),
+      getGeneticContext(session.user.email),
     ]);
 
   // Build context block
@@ -151,7 +153,8 @@ Current context (${new Date().toISOString().split("T")[0]}):
 ${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`
     + "\n\n---\n## Who you are talking to:\n" + philippContext
     + "\n\n## Long-term memory:\n" + memoryContext
-    + dbMemoryContext;
+    + dbMemoryContext
+    + geneticContext;
 
   // Get recent chat history for conversation context
   const { data: recentMessages } = await supabase

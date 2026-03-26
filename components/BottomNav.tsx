@@ -66,6 +66,7 @@ const morePages = [
   { href: "/energy", label: "Energy", emoji: "\u{26A1}" },
   { href: "/flow", label: "Flow", emoji: "\u{1F30A}" },
   { href: "/decisions", label: "Decisions", emoji: "\u{1F9ED}" },
+  { href: "/genetics", label: "Genetics", emoji: "\u{1F9EC}" },
   { href: "/memory", label: "Memory", emoji: "\u{1F9E0}" },
   { href: "/settings", label: "Settings", emoji: "\u{2699}\u{FE0F}" },
 ];

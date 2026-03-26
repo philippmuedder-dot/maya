@@ -16,6 +16,7 @@ const navItems = [
   { href: "/decisions", label: "Decisions", icon: "🎯" },
   { href: "/chat", label: "AI Coach", icon: "🤖" },
   { href: "/weekly", label: "Weekly Review", icon: "📅" },
+  { href: "/genetics", label: "Genetics", icon: "🧬" },
   { href: "/memory", label: "Memory", icon: "🧠" },
   { href: "/settings", label: "Settings", icon: "⚙️" },
 ];
