@@ -141,7 +141,7 @@ Respond with ONLY valid JSON. No markdown.`;
   const rows = extracted
     .filter((v) => v.rsid && v.genotype && validImpacts.includes(v.impact))
     .map((v) => ({
-      user_id: session.user.email!,
+      user_id: session.user?.email ?? "",
       rsid: v.rsid,
       gene: v.gene ?? null,
       genotype: v.genotype,
