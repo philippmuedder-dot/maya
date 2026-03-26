@@ -208,9 +208,9 @@ ${contextParts.length > 0 ? contextParts.join("\n") : "No data available yet."}`
         const { count } = await supabase
           .from("chat_messages")
           .select("*", { count: "exact", head: true })
-          .eq("user_id", session.user.email);
+          .eq("user_id", session.user?.email ?? "");
         if (count && count % 10 === 0) {
-          extractMemoryFromRecentChat(session.user.email).catch(() => {});
+          extractMemoryFromRecentChat(session.user?.email ?? "").catch(() => {});
         }
 
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));
