@@ -31,49 +31,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  let fileContent: string;
-  let fileName: string;
-  let fileBuffer: ArrayBuffer;
+  let filteredLines: string[];
 
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File | null;
-    if (!file) {
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    const body = await req.json();
+    if (!Array.isArray(body.filteredLines) || body.filteredLines.length === 0) {
+      return NextResponse.json({ error: "No SNP data provided" }, { status: 400 });
     }
-
-    const allowedTypes = [".txt", ".csv", ".vcf"];
-    const ext = "." + file.name.split(".").pop()?.toLowerCase();
-    if (!allowedTypes.includes(ext)) {
-      return NextResponse.json(
-        { error: "Only .txt, .csv, and .vcf files are supported" },
-        { status: 400 }
-      );
-    }
-
-    fileName = file.name;
-    fileBuffer = await file.arrayBuffer();
-    fileContent = new TextDecoder("utf-8").decode(fileBuffer);
+    filteredLines = body.filteredLines as string[];
   } catch {
-    return NextResponse.json({ error: "Failed to read file" }, { status: 400 });
+    return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
   }
 
-  // Upload raw file to Supabase Storage
-  const supabase = createServiceClient();
-  const timestamp = Date.now();
-  const storagePath = `${session.user.email}/${timestamp}-${fileName}`;
-
-  try {
-    await supabase.storage
-      .from("genetics")
-      .upload(storagePath, fileBuffer, { contentType: "text/plain", upsert: false });
-  } catch {
-    // Non-fatal — storage might not exist yet; continue with extraction
-  }
-
-  // Extract only lines containing target rsids to keep Claude prompt small
-  const lines = fileContent.split("\n");
-  const relevantLines = lines.filter((line) =>
+  // Re-validate that only target rsids are present (defence in depth)
+  const relevantLines = filteredLines.filter((line) =>
     TARGET_RSIDS.some((rsid) => line.toLowerCase().includes(rsid.toLowerCase()))
   );
 
@@ -83,11 +54,9 @@ export async function POST(req: NextRequest) {
     }, { status: 422 });
   }
 
-  // Also include header line (first non-comment line) for column context
-  const headerLine = lines.find((l) => !l.startsWith("#") && l.trim().length > 0) ?? "";
-  const snpData = [headerLine, ...relevantLines].join("\n");
+  const snpData = relevantLines.join("\n");
 
-  const prompt = `Extract health-relevant SNPs from this raw genetic data. The data format is tab or comma separated.
+  const prompt = `Extract health-relevant SNPs from this raw genetic data. The data format is tab or comma separated (columns: rsid, chromosome, position, genotype).
 
 Raw genetic data (filtered to target SNPs only):
 ${snpData}
@@ -145,6 +114,7 @@ Respond with ONLY valid JSON. No markdown.`;
   }
 
   // Delete old variants for this user and insert fresh ones
+  const supabase = createServiceClient();
   await supabase.from("genetic_variants").delete().eq("user_id", session.user.email);
 
   const validImpacts = ["positive", "neutral", "risk"];

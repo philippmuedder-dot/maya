@@ -139,10 +139,18 @@ const INSIGHT_SECTIONS = [
   { key: "nutrition", label: "Caffeine & Nutrition", emoji: "☕" },
 ];
 
+const TARGET_RSIDS = [
+  "rs1801133", "rs1801131", "rs4680", "rs2228570",
+  "rs429358", "rs7412", "rs1815739", "rs3027172", "rs5751876", "rs4795541",
+  "rs6265", "rs1799752", "rs4880", "rs1799983", "rs8192678", "rs9939609",
+  "rs1800795", "rs762551", "rs1801260",
+];
+
 export default function GeneticsPage() {
   const [variants, setVariants] = useState<GeneticVariant[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState(false);
 
@@ -194,18 +202,13 @@ export default function GeneticsPage() {
     }
   }
 
-  async function handleUpload(file: File) {
-    setUploading(true);
-    setUploadError(null);
-    setUploadSuccess(false);
-
-    const formData = new FormData();
-    formData.append("file", file);
-
+  async function handleUpload(filteredLines: string[], filename: string) {
     try {
+      setUploadPhase("Analyzing…");
       const res = await fetch("/api/genetics/upload", {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filteredLines, filename }),
       });
       const data = await res.json();
 
@@ -222,13 +225,47 @@ export default function GeneticsPage() {
       setUploadError("Network error — please try again");
     } finally {
       setUploading(false);
+      setUploadPhase(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     }
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) handleUpload(file);
+    if (!file) return;
+
+    setUploading(true);
+    setUploadError(null);
+    setUploadSuccess(false);
+    setUploadPhase("Reading file…");
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const text = event.target?.result as string;
+      setUploadPhase("Extracting SNPs…");
+
+      const lines = text.split("\n");
+      const filteredLines = lines.filter((line) =>
+        TARGET_RSIDS.some((rsid) => line.toLowerCase().includes(rsid.toLowerCase()))
+      );
+
+      if (filteredLines.length === 0) {
+        setUploadError("No target SNPs found. Make sure this is a valid 23andMe or AncestryDNA raw data file.");
+        setUploading(false);
+        setUploadPhase(null);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+
+      await handleUpload(filteredLines, file.name);
+    };
+    reader.onerror = () => {
+      setUploadError("Failed to read file");
+      setUploading(false);
+      setUploadPhase(null);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsText(file);
   }
 
   const grouped = CATEGORIES.map((cat) => ({
@@ -270,7 +307,7 @@ export default function GeneticsPage() {
             disabled={uploading || analysisLoading}
             className="px-4 py-2 text-sm rounded-lg bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 font-medium hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
-            {uploading ? "Extracting SNPs…" : "Choose file"}
+            {uploading ? (uploadPhase ?? "Processing…") : "Choose file"}
           </button>
         </div>
 
@@ -285,7 +322,9 @@ export default function GeneticsPage() {
         {(uploading || analysisLoading) && (
           <p className="text-xs text-neutral-400 animate-pulse mt-2">
             {uploading
-              ? "Extracting SNPs with Claude… 10–20 seconds"
+              ? uploadPhase === "Analyzing…"
+                ? "Sending SNPs to Claude… 10–20 seconds"
+                : uploadPhase ?? "Processing…"
               : "Generating comprehensive analysis… 20–30 seconds"}
           </p>
         )}
