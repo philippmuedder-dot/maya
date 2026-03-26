@@ -188,7 +188,8 @@ Rules:
     });
 
     const text = response.content[0].type === "text" ? response.content[0].text : "{}";
-    const analysis = JSON.parse(text);
+    const clean = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+const analysis = JSON.parse(clean);
 
     // Cache in genetics_analysis table
     const now = new Date().toISOString();
