@@ -18,6 +18,11 @@ const TARGET_RSIDS = [
   "rs1799752",               // ACE
   "rs4880",                  // SOD2
   "rs1799983",               // NOS3
+  "rs8192678",               // PPARGC1A (mitochondrial biogenesis)
+  "rs9939609",               // FTO (metabolism / obesity risk)
+  "rs1800795",               // IL6 (inflammation)
+  "rs762551",                // CYP1A2 (caffeine metabolism)
+  "rs1801260",               // CLOCK (circadian rhythm)
 ];
 
 export async function POST(req: NextRequest) {
@@ -97,12 +102,17 @@ Target SNPs and their genes:
 - APOE: rs429358, rs7412 (Alzheimer's / cardiovascular risk)
 - ACTN3: rs1815739 (Athletic power vs endurance)
 - PER3: rs3027172 (Circadian rhythm / sleep)
-- ADORA2A: rs5751876 (Caffeine sensitivity)
+- ADORA2A: rs5751876 (Caffeine sensitivity / sleep)
 - SLC6A4: rs4795541 (Serotonin transporter)
-- BDNF: rs6265 (Brain-derived neurotrophic factor)
+- BDNF: rs6265 (Brain-derived neurotrophic factor / neuroplasticity)
 - ACE: rs1799752 (Blood pressure / endurance)
 - SOD2: rs4880 (Antioxidant / mitochondrial)
 - NOS3: rs1799983 (Nitric oxide / cardiovascular)
+- PPARGC1A: rs8192678 (Mitochondrial biogenesis / endurance)
+- FTO: rs9939609 (Metabolism / obesity risk)
+- IL6: rs1800795 (Inflammation / immune response)
+- CYP1A2: rs762551 (Caffeine metabolism — fast vs slow metaboliser)
+- CLOCK: rs1801260 (Circadian rhythm / chronotype)
 
 For each found SNP:
 - Set impact based on the genotype: "risk" for clinically significant risk variants, "positive" for beneficial variants, "neutral" for common/benign variants
