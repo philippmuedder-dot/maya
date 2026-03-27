@@ -225,13 +225,16 @@ export async function GET() {
               stages.total_rem_sleep_time_milli;
             const durationHrs = +(totalSleepMs / 3_600_000).toFixed(2);
 
+            // Anchor sleep to its "evening" date: subtract 12h so midnight
+            // sleeps map to the previous calendar day (the night they belong to).
+            const sleepAnchor = new Date(new Date(r.start).getTime() - 12 * 3600 * 1000);
             return {
               date: new Intl.DateTimeFormat("en-CA", {
                 timeZone: "Europe/Berlin",
                 year: "numeric",
                 month: "2-digit",
                 day: "2-digit",
-              }).format(new Date(r.start)),
+              }).format(sleepAnchor),
               duration_hrs: durationHrs,
               performance_pct: r.score.sleep_performance_percentage ?? 0,
               efficiency_pct: r.score.sleep_efficiency_percentage ?? 0,
