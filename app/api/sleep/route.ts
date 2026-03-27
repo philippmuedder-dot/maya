@@ -226,7 +226,12 @@ export async function GET() {
             const durationHrs = +(totalSleepMs / 3_600_000).toFixed(2);
 
             return {
-              date: new Date(r.start).toISOString().split("T")[0],
+              date: new Intl.DateTimeFormat("en-CA", {
+                timeZone: "Europe/Berlin",
+                year: "numeric",
+                month: "2-digit",
+                day: "2-digit",
+              }).format(new Date(r.start)),
               duration_hrs: durationHrs,
               performance_pct: r.score.sleep_performance_percentage ?? 0,
               efficiency_pct: r.score.sleep_efficiency_percentage ?? 0,
