@@ -403,6 +403,7 @@ export default function EnergyPage() {
   const [people, setPeople] = useState("");
   const [feeling, setFeeling] = useState<string>("");
   const [notes, setNotes] = useState("");
+  const [logDate, setLogDate] = useState(() => new Date().toISOString().split("T")[0]);
 
   useEffect(() => {
     fetch("/api/energy")
@@ -427,15 +428,24 @@ export default function EnergyPage() {
           people: people.trim() || null,
           feeling,
           drain_source: notes.trim() || null,
+          date: logDate,
         }),
       });
       const data = await res.json();
       if (res.ok) {
-        setLogs((prev) => [data, ...prev]);
+        setLogs((prev) => {
+          const updated = [data, ...prev];
+          // Keep sorted by date desc, then created_at desc
+          return updated.sort((a, b) => {
+            if (b.date !== a.date) return b.date.localeCompare(a.date);
+            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          });
+        });
         // Reset form for next entry
         setPeople("");
         setFeeling("");
         setNotes("");
+        setLogDate(new Date().toISOString().split("T")[0]);
       }
     } catch (err) {
       console.error("Failed to save energy log:", err);
@@ -592,6 +602,19 @@ export default function EnergyPage() {
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+                When did this happen?
+              </label>
+              <input
+                type="date"
+                value={logDate}
+                max={new Date().toISOString().split("T")[0]}
+                onChange={(e) => setLogDate(e.target.value)}
+                className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+              />
+            </div>
+
             <button
               onClick={saveLog}
               disabled={saving || !feeling}
@@ -601,79 +624,108 @@ export default function EnergyPage() {
             </button>
           </div>
 
-          {/* Today's Entries */}
-          {todayLogs.length > 0 && (
-            <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                  Today&apos;s Interactions
-                  <span className="text-xs font-normal text-neutral-400 ml-2">
-                    {todayLogs.length} entr{todayLogs.length === 1 ? "y" : "ies"}
-                  </span>
-                </h2>
-                {todayScore !== null && (
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
-                    todayScore > 0
-                      ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                      : todayScore < 0
-                        ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                        : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-                  }`}>
-                    {todayScore > 0 ? "Net positive" : todayScore < 0 ? "Net drain" : "Balanced"}
-                  </span>
-                )}
-              </div>
+          {/* Recent Interactions — grouped by date */}
+          {logs.length > 0 && (() => {
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-              <div className="space-y-2">
-                {todayLogs.map((log) => {
-                  const time = new Date(log.created_at).toLocaleTimeString("en-US", {
-                    hour: "numeric",
-                    minute: "2-digit",
-                    hour12: true,
-                  });
+            // Group logs by date (logs already sorted by date desc)
+            const groups: { date: string; entries: EnergyLog[] }[] = [];
+            for (const log of logs) {
+              if (groups.length > 0 && groups[groups.length - 1].date === log.date) {
+                groups[groups.length - 1].entries.push(log);
+              } else {
+                groups.push({ date: log.date, entries: [log] });
+              }
+            }
+
+            return (
+              <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-5">
+                <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                  Recent Interactions
+                </h2>
+                {groups.map((group) => {
+                  const groupScore = group.entries.reduce((sum, l) =>
+                    sum + (l.feeling === "energized" ? 1 : l.feeling === "drained" ? -1 : 0), 0
+                  ) / group.entries.length;
+
+                  const dateLabel =
+                    group.date === todayStr ? "Today" :
+                    group.date === yesterdayStr ? "Yesterday" :
+                    new Date(group.date + "T12:00:00").toLocaleDateString("en-US", {
+                      weekday: "short", month: "short", day: "numeric",
+                    });
+
                   return (
-                    <div key={log.id} className="flex items-start gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                      <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
-                        log.feeling === "energized" ? "bg-emerald-500" :
-                        log.feeling === "drained" ? "bg-red-500" : "bg-amber-400"
-                      }`} />
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          {log.people && (
-                            <span className="text-sm text-neutral-900 dark:text-neutral-100 font-medium truncate">
-                              {log.people}
-                            </span>
-                          )}
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${
-                            log.feeling === "energized"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : log.feeling === "drained"
-                                ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-                                : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
-                          }`}>
-                            {FEELING_LABELS[log.feeling]}
+                    <div key={group.date} className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wide">
+                          {dateLabel}
+                          <span className="font-normal ml-1.5">
+                            {group.entries.length} entr{group.entries.length === 1 ? "y" : "ies"}
                           </span>
-                        </div>
-                        {log.drain_source && (
-                          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{log.drain_source}</p>
-                        )}
-                        <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">{time}</p>
+                        </span>
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                          groupScore > 0
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                            : groupScore < 0
+                              ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                              : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                        }`}>
+                          {groupScore > 0 ? "Net positive" : groupScore < 0 ? "Net drain" : "Balanced"}
+                        </span>
                       </div>
-                      <button
-                        onClick={() => deleteLog(log.id)}
-                        className="shrink-0 p-1 rounded text-neutral-300 dark:text-neutral-600 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                        title="Remove"
-                      >
-                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
+                      {group.entries.map((log) => {
+                        const time = new Date(log.created_at).toLocaleTimeString("en-US", {
+                          hour: "numeric", minute: "2-digit", hour12: true,
+                        });
+                        return (
+                          <div key={log.id} className="flex items-start gap-3 py-2 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+                            <span className={`mt-0.5 shrink-0 w-2 h-2 rounded-full ${
+                              log.feeling === "energized" ? "bg-emerald-500" :
+                              log.feeling === "drained" ? "bg-red-500" : "bg-amber-400"
+                            }`} />
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                {log.people && (
+                                  <span className="text-sm text-neutral-900 dark:text-neutral-100 font-medium truncate">
+                                    {log.people}
+                                  </span>
+                                )}
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                  log.feeling === "energized"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    : log.feeling === "drained"
+                                      ? "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+                                      : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                                }`}>
+                                  {FEELING_LABELS[log.feeling]}
+                                </span>
+                              </div>
+                              {log.drain_source && (
+                                <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{log.drain_source}</p>
+                              )}
+                              <p className="text-[10px] text-neutral-400 dark:text-neutral-500 mt-0.5">{time}</p>
+                            </div>
+                            <button
+                              onClick={() => deleteLog(log.id)}
+                              className="shrink-0 p-1 rounded text-neutral-300 dark:text-neutral-600 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                              title="Remove"
+                            >
+                              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                              </svg>
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Not-Self Check */}
           {showNotSelf && (

@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { people, feeling, drain_source } = body;
+  const { people, feeling, drain_source, date } = body;
 
   if (!feeling || !["energized", "neutral", "drained"].includes(feeling)) {
     return NextResponse.json(
@@ -59,14 +59,17 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const supabase = createServiceClient();
   const today = new Date().toISOString().split("T")[0];
+  // Use provided date if valid and not in the future, otherwise fall back to today
+  const logDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) && date <= today ? date : today;
+
+  const supabase = createServiceClient();
 
   const { data, error } = await supabase
     .from("energy_logs")
     .insert({
       user_id: session.user.email,
-      date: today,
+      date: logDate,
       people: people || null,
       feeling,
       drain_source: drain_source || null,
