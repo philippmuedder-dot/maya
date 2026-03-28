@@ -76,12 +76,13 @@ const accessToken = tokenRow?.access_token;
       sleepHours = Math.round((diffMs / 3_600_000) * 10) / 10;
     }
 
-    const sleepDebtMins = data.sleep?.score?.sleep_needed?.need_from_sleep_debt_milli != null
-      ? Math.round(data.sleep.score.sleep_needed.need_from_sleep_debt_milli / 60000)
-      : null;
-    const sleepNeedMins = data.sleep?.score?.sleep_needed?.baseline_milli != null
-      ? Math.round(data.sleep.score.sleep_needed.baseline_milli / 60000)
-      : null;
+    const sleepScore = data.sleep?.score as any;
+const sleepDebtMins = sleepScore?.sleep_needed?.need_from_sleep_debt_milli != null
+  ? Math.round(sleepScore.sleep_needed.need_from_sleep_debt_milli / 60000)
+  : null;
+const sleepNeedMins = sleepScore?.sleep_needed?.baseline_milli != null
+  ? Math.round(sleepScore.sleep_needed.baseline_milli / 60000)
+  : null;
 
     const { error: upsertError } = await supabase
       .from("whoop_daily_data")
