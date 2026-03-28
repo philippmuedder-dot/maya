@@ -51,6 +51,13 @@ export async function GET() {
   }
 
   const supabase = createServiceClient();
+  const sleepDebtMins = data.sleep?.score?.sleep_needed?.need_from_sleep_debt_milli != null
+    ? Math.round(data.sleep.score.sleep_needed.need_from_sleep_debt_milli / 60000)
+    : null;
+  const sleepNeedMins = data.sleep?.score?.sleep_needed?.baseline_milli != null
+    ? Math.round(data.sleep.score.sleep_needed.baseline_milli / 60000)
+    : null;
+
   Promise.resolve(
     supabase
       .from("whoop_daily_data")
@@ -63,6 +70,8 @@ export async function GET() {
           strain: data.cycle?.score?.strain ?? null,
           sleep_hours: sleepHours,
           sleep_quality: data.sleep?.score?.sleep_performance_percentage ?? null,
+          sleep_debt_mins: sleepDebtMins,
+          sleep_need_mins: sleepNeedMins,
         },
         { onConflict: "user_id,date" }
       )

@@ -262,43 +262,23 @@ export async function GET() {
     } catch { /* ignore */ }
   }
 
-  // ── Sleep debt from whoop_daily_data (reliable DB source) ─────────────────
-  // Use this regardless of whether the API call succeeded — it's populated on
-  // each /api/whoop/data call so it's the most consistent source.
+  // ── Sleep debt from whoop_daily_data — use Whoop's native calculation ───────
   if (whoopConnected) {
     try {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const sevenDaysAgoStr = sevenDaysAgo.toISOString().split("T")[0];
-
-      const { data: dailyRows } = await supabase
+      const { data: debtRow } = await supabase
         .from("whoop_daily_data")
-        .select("date, sleep_hours")
+        .select("sleep_debt_mins")
         .eq("user_id", userId)
-        .gte("date", sevenDaysAgoStr)
-        .not("sleep_hours", "is", null);
+        .not("sleep_debt_mins", "is", null)
+        .order("date", { ascending: false })
+        .limit(1)
+        .single();
 
-      if (dailyRows && dailyRows.length > 0) {
-        const debt = dailyRows.reduce(
-          (sum: number, row: { sleep_hours: number }) =>
-            sum + Math.max(0, 8 - row.sleep_hours),
-          0
-        );
-        sleepDebt = +debt.toFixed(1);
-      } else if (sleepLog.length > 0) {
-        // Fall back to API-derived log if DB has no data yet
-        sleepDebt = +sleepLog
-          .reduce((debt, night) => debt + (8 - night.duration_hrs), 0)
-          .toFixed(1);
+      if (debtRow?.sleep_debt_mins != null) {
+        sleepDebt = debtRow.sleep_debt_mins;
       }
     } catch (err) {
-      console.error("[sleep] whoop_daily_data fetch error:", err);
-      // Last resort: calculate from API sleep log if available
-      if (sleepLog.length > 0) {
-        sleepDebt = +sleepLog
-          .reduce((debt, night) => debt + (8 - night.duration_hrs), 0)
-          .toFixed(1);
-      }
+      console.error("[sleep] whoop_daily_data sleep_debt fetch error:", err);
     }
   }
 

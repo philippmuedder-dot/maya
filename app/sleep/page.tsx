@@ -48,15 +48,15 @@ function durationColor(hrs: number): string {
   return "text-red-600 dark:text-red-400";
 }
 
-function debtColor(debt: number): string {
-  if (debt < 2) return "bg-emerald-500";
-  if (debt <= 5) return "bg-yellow-500";
+function debtColor(debtMins: number): string {
+  if (debtMins < 30) return "bg-emerald-500";
+  if (debtMins <= 120) return "bg-yellow-500";
   return "bg-red-500";
 }
 
-function debtTextColor(debt: number): string {
-  if (debt < 2) return "text-emerald-600 dark:text-emerald-400";
-  if (debt <= 5) return "text-yellow-600 dark:text-yellow-400";
+function debtTextColor(debtMins: number): string {
+  if (debtMins < 30) return "text-emerald-600 dark:text-emerald-400";
+  if (debtMins <= 120) return "text-yellow-600 dark:text-yellow-400";
   return "text-red-600 dark:text-red-400";
 }
 
@@ -113,10 +113,9 @@ export default function SleepPage() {
 
   if (!data) return null;
 
-  const debtAbs = Math.abs(data.sleep_debt ?? 0);
-  const debtIsPositive = (data.sleep_debt ?? 0) > 0;
-  // Cap the bar at 10 hours for visualization
-  const debtBarPct = Math.min((debtAbs / 10) * 100, 100);
+  const debtMins = data.sleep_debt ?? 0;
+  // Cap the bar at 300 mins (5hrs) for visualization
+  const debtBarPct = Math.min((debtMins / 300) * 100, 100);
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -201,30 +200,30 @@ export default function SleepPage() {
         </h2>
         {data.sleep_debt !== null ? (
           <div>
-            <p className={`text-2xl font-bold ${debtTextColor(debtAbs)}`}>
-              {debtIsPositive ? "-" : "+"}{debtAbs}hrs
-              <span className="text-sm font-normal text-neutral-400 ml-2">this week</span>
+            <p className={`text-2xl font-bold ${debtTextColor(debtMins)}`}>
+              {debtMins}mins
+              <span className="text-sm font-normal text-neutral-400 ml-2">from Whoop</span>
             </p>
             <div className="mt-3 relative">
               {/* Background bar */}
               <div className="w-full bg-neutral-200 dark:bg-neutral-700 rounded-full h-3">
-                {debtAbs > 0 && (
+                {debtMins > 0 && (
                   <div
-                    className={`h-3 rounded-full transition-all ${debtColor(debtAbs)}`}
+                    className={`h-3 rounded-full transition-all ${debtColor(debtMins)}`}
                     style={{ width: `${debtBarPct}%` }}
                   />
                 )}
               </div>
               {/* Labels */}
               <div className="flex justify-between mt-1">
-                <span className="text-xs text-neutral-400">0hrs (target)</span>
-                <span className="text-xs text-neutral-400">10hrs debt</span>
+                <span className="text-xs text-neutral-400">0 (target)</span>
+                <span className="text-xs text-neutral-400">300mins debt</span>
               </div>
             </div>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
-              {debtAbs < 2
+              {debtMins < 30
                 ? "Sleep debt is low — you are well-rested"
-                : debtAbs <= 5
+                : debtMins <= 120
                   ? "Moderate sleep debt — prioritize an earlier bedtime"
                   : "High sleep debt — recovery should be your top priority"}
             </p>
