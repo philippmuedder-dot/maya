@@ -791,8 +791,8 @@ function RangesTab({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          optimal_min: editValues.optimal_min !== "" && editValues.optimal_min != null ? Number(editValues.optimal_min) : null,
-          optimal_max: editValues.optimal_max !== "" && editValues.optimal_max != null ? Number(editValues.optimal_max) : null,
+          ooptimal_min: editValues.optimal_min != null && String(editValues.optimal_min) !== "" ? Number(editValues.optimal_min) : null,
+optimal_max: editValues.optimal_max != null && String(editValues.optimal_max) !== "" ? Number(editValues.optimal_max) : null,
           unit: editValues.unit || null,
           source: editValues.source || null,
         }),
