@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { markers, test_date, lab_name, file_path, reference_source } = body;
+  const { markers, test_date, lab_name, file_path } = body;
 
   if (!markers) {
     return NextResponse.json({ error: "markers are required." }, { status: 400 });
@@ -47,7 +47,6 @@ export async function POST(req: NextRequest) {
       lab_name: lab_name || null,
       markers,
       file_path: file_path || null,
-      reference_source: reference_source || "lab",
     })
     .select()
     .single();

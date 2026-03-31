@@ -19,6 +19,7 @@ export async function GET() {
 
   return NextResponse.json({
     current_timezone: data?.current_timezone ?? "Europe/Berlin",
+    bloodwork_reference_source: data?.bloodwork_reference_source ?? "function_health",
   });
 }
 
@@ -30,23 +31,23 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { current_timezone } = body;
+  const { current_timezone, bloodwork_reference_source } = body;
 
-  if (!current_timezone) {
-    return NextResponse.json({ error: "current_timezone is required" }, { status: 400 });
+  const update: Record<string, string> = {
+    user_id: session.user.email,
+    updated_at: new Date().toISOString(),
+  };
+  if (current_timezone) update.current_timezone = current_timezone;
+  if (bloodwork_reference_source) update.bloodwork_reference_source = bloodwork_reference_source;
+
+  if (Object.keys(update).length === 2) {
+    return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
 
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("user_preferences")
-    .upsert(
-      {
-        user_id: session.user.email,
-        current_timezone,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id" }
-    )
+    .upsert(update, { onConflict: "user_id" })
     .select()
     .single();
 

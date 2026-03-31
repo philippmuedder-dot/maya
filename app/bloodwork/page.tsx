@@ -23,17 +23,64 @@ interface BloodworkResult {
   test_date: string | null;
   lab_name: string | null;
   markers: Marker[];
-  reference_source: "lab" | "function_health";
   created_at: string;
 }
 
-// Pending result returned from /api/bloodwork/upload — not yet saved to DB
 interface PendingResult {
   markers: Marker[];
   test_date: string | null;
   lab_name: string | null;
   file_path: string;
 }
+
+type RefSource = "lab" | "function_health";
+
+// ─── Function Health Optimal Ranges ───────────────────────────────────────────
+
+interface OptimalRange {
+  min?: number;
+  max?: number;
+}
+
+// Keyed by lowercase substring that must appear in the marker name
+const FH_OPTIMAL: [string, OptimalRange][] = [
+  ["vitamin d", { min: 60, max: 80 }],
+  ["ferritin", { min: 50, max: 150 }],
+  ["tsh", { min: 0.5, max: 2.0 }],
+  ["fasting glucose", { min: 70, max: 85 }],
+  ["glucose", { min: 70, max: 85 }],
+  ["hba1c", { max: 5.4 }],
+  ["hemoglobin a1c", { max: 5.4 }],
+  ["ldl", { max: 100 }],
+  ["homocysteine", { max: 8 }],
+  ["hs-crp", { max: 0.5 }],
+  ["hscrp", { max: 0.5 }],
+  ["high-sensitivity c-reactive", { max: 0.5 }],
+  ["c-reactive protein", { max: 0.5 }],
+  ["testosterone", { min: 600, max: 900 }],
+];
+
+type EffectiveStatus = "normal" | "low" | "high" | "suboptimal";
+
+function getEffectiveStatus(marker: Marker, refSource: RefSource): EffectiveStatus {
+  if (refSource !== "function_health") return marker.status;
+
+  const numeric = parseNumericValue(marker.value);
+  if (numeric === null) return marker.status;
+
+  const nameLower = marker.name.toLowerCase();
+  for (const [key, range] of FH_OPTIMAL) {
+    if (nameLower.includes(key)) {
+      const belowMin = range.min !== undefined && numeric < range.min;
+      const aboveMax = range.max !== undefined && numeric > range.max;
+      if ((belowMin || aboveMax) && marker.status === "normal") return "suboptimal";
+      return marker.status;
+    }
+  }
+  return marker.status;
+}
+
+// ─── Categories ───────────────────────────────────────────────────────────────
 
 const CATEGORIES: Record<string, string[]> = {
   Lipids: ["cholesterol", "ldl", "hdl", "triglyceride", "vldl", "lipoprotein", "apolipoprotein"],
@@ -54,32 +101,24 @@ function categorize(marker: Marker): string {
   return "Other";
 }
 
-function statusColor(status: string) {
+function statusColor(status: EffectiveStatus) {
   if (status === "high") return "text-red-600 dark:text-red-400";
   if (status === "low") return "text-yellow-600 dark:text-yellow-400";
+  if (status === "suboptimal") return "text-amber-600 dark:text-amber-400";
   return "text-green-600 dark:text-green-400";
 }
 
-function statusBadge(status: string) {
+function statusBadge(status: EffectiveStatus) {
   const base = "text-xs font-medium px-2 py-0.5 rounded-full";
   if (status === "high") return `${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400`;
   if (status === "low") return `${base} bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400`;
+  if (status === "suboptimal") return `${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`;
   return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`;
 }
 
-function refSourceBadge(source: "lab" | "function_health") {
-  if (source === "function_health") {
-    return (
-      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
-        Function Health ranges
-      </span>
-    );
-  }
-  return (
-    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
-      Standard lab ranges
-    </span>
-  );
+function statusLabel(status: EffectiveStatus) {
+  if (status === "suboptimal") return "Sub-optimal";
+  return status;
 }
 
 // ─── Trend Helpers ─────────────────────────────────────────────────────────────
@@ -88,7 +127,7 @@ interface TrendPoint {
   date: string;
   dateLabel: string;
   value: number;
-  status: "normal" | "low" | "high";
+  status: EffectiveStatus;
 }
 
 interface MarkerTrendData {
@@ -103,13 +142,12 @@ interface MarkerTrendData {
   trend: "improving" | "worsening" | "stable";
 }
 
-// Marker that only appears in older tests — not in the most recent
 interface UnretestedMarker {
   name: string;
   unit: string;
   value: string;
-  status: "normal" | "low" | "high";
-  lastSeen: string; // date label
+  status: EffectiveStatus;
+  lastSeen: string;
   category: string;
 }
 
@@ -125,13 +163,17 @@ function determineTrend(
   deltaPercent: number
 ): "improving" | "worsening" | "stable" {
   if (Math.abs(deltaPercent) < 5) return "stable";
-  if (prev.status !== "normal" && latest.status === "normal") return "improving";
-  if (prev.status === "normal" && latest.status !== "normal") return "worsening";
-  if (latest.status === "normal" && prev.status === "normal") return "stable";
+  const prevBad = prev.status !== "normal";
+  const latestBad = latest.status !== "normal";
+  if (prevBad && !latestBad) return "improving";
+  if (!prevBad && latestBad) return "worsening";
   return "stable";
 }
 
-function buildTrendData(results: BloodworkResult[]): {
+function buildTrendData(
+  results: BloodworkResult[],
+  refSource: RefSource
+): {
   trendData: Record<string, MarkerTrendData>;
   unretested: UnretestedMarker[];
 } {
@@ -144,7 +186,6 @@ function buildTrendData(results: BloodworkResult[]): {
   const markerMap: Record<string, TrendPoint[]> = {};
   const markerMeta: Record<string, { unit: string; name: string }> = {};
 
-  // Track which markers appear in the latest (most recent) result
   const latestResult = sorted[sorted.length - 1];
   const latestMarkerKeys = new Set(
     latestResult.markers.map((m) => m.name.toLowerCase().trim())
@@ -166,7 +207,12 @@ function buildTrendData(results: BloodworkResult[]): {
       if (!markerMap[key]) markerMap[key] = [];
       if (!markerMeta[key]) markerMeta[key] = { unit: m.unit, name: m.name };
 
-      markerMap[key].push({ date: dateStr, dateLabel, value: numeric, status: m.status });
+      markerMap[key].push({
+        date: dateStr,
+        dateLabel,
+        value: numeric,
+        status: getEffectiveStatus(m, refSource),
+      });
     }
   }
 
@@ -183,13 +229,12 @@ function buildTrendData(results: BloodworkResult[]): {
       : 0;
 
     const trend = determineTrend(previous, latest, deltaPercent);
-
     const mockMarker: Marker = {
       name: markerMeta[key].name,
       value: "",
       unit: markerMeta[key].unit,
       reference_range: "",
-      status: latest.status,
+      status: latest.status === "suboptimal" ? "normal" : latest.status,
     };
 
     trendData[key] = {
@@ -205,14 +250,12 @@ function buildTrendData(results: BloodworkResult[]): {
     };
   }
 
-  // Build unretested markers: appeared in older tests, not in the latest
+  // Unretested: appeared in older tests, absent from latest
   const unretested: UnretestedMarker[] = [];
   for (const [key, points] of Object.entries(markerMap)) {
     if (latestMarkerKeys.has(key)) continue;
     const lastPoint = points[points.length - 1];
-    // Get original marker value from the result that last had it
     let origValue = String(lastPoint.value);
-    // Try to find original string value from results
     for (let i = sorted.length - 1; i >= 0; i--) {
       const found = sorted[i].markers.find((m) => m.name.toLowerCase().trim() === key);
       if (found) { origValue = found.value; break; }
@@ -222,7 +265,7 @@ function buildTrendData(results: BloodworkResult[]): {
       value: origValue,
       unit: markerMeta[key].unit,
       reference_range: "",
-      status: lastPoint.status,
+      status: lastPoint.status === "suboptimal" ? "normal" : lastPoint.status,
     };
     unretested.push({
       name: markerMeta[key].name,
@@ -256,25 +299,23 @@ function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
     stable: "Stable",
   }[data.trend];
 
-  const lineColor = data.latest.status === "normal" ? "#10b981" : "#ef4444";
+  const lineColor =
+    data.latest.status === "normal" ? "#10b981" :
+    data.latest.status === "suboptimal" ? "#f59e0b" :
+    "#ef4444";
 
   return (
     <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700 space-y-3">
       <div className="flex items-start justify-between gap-2">
         <div>
-          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            {data.name}
-          </p>
+          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{data.name}</p>
           <p className="text-xs text-neutral-400">{data.unit}</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${trendStyle}`}>
-            {trendLabel}
-          </span>
-        </div>
+        <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${trendStyle}`}>
+          {trendLabel}
+        </span>
       </div>
 
-      {/* Latest vs previous */}
       <div className="flex items-baseline gap-3">
         <span className={`text-lg font-bold font-mono ${statusColor(data.latest.status)}`}>
           {data.latest.value}
@@ -288,7 +329,6 @@ function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
         </span>
       </div>
 
-      {/* Line chart */}
       <div className="h-24">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data.points} margin={{ top: 4, right: 4, bottom: 4, left: 0 }}>
@@ -317,7 +357,10 @@ function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
               strokeWidth={2}
               dot={(props) => {
                 const { cx, cy, payload } = props;
-                const color = payload.status === "normal" ? "#10b981" : "#ef4444";
+                const color =
+                  payload.status === "normal" ? "#10b981" :
+                  payload.status === "suboptimal" ? "#f59e0b" :
+                  "#ef4444";
                 return (
                   <circle
                     key={`dot-${cx}-${cy}`}
@@ -339,24 +382,22 @@ function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
   );
 }
 
-// ─── Trend Section (grouped by category + unretested) ─────────────────────────
+// ─── Trend Section ─────────────────────────────────────────────────────────────
 
-function TrendSection({ results }: { results: BloodworkResult[] }) {
-  const { trendData, unretested } = buildTrendData(results);
+function TrendSection({ results, refSource }: { results: BloodworkResult[]; refSource: RefSource }) {
+  const { trendData, unretested } = buildTrendData(results, refSource);
   const markers = Object.values(trendData);
 
   const improving = markers.filter((m) => m.trend === "improving").length;
   const worsening = markers.filter((m) => m.trend === "worsening").length;
   const stable = markers.filter((m) => m.trend === "stable").length;
 
-  // Group trended markers by category
   const byCategory: Record<string, MarkerTrendData[]> = {};
   for (const m of markers) {
     if (!byCategory[m.category]) byCategory[m.category] = [];
     byCategory[m.category].push(m);
   }
 
-  // Group unretested by category
   const unretestedByCategory: Record<string, UnretestedMarker[]> = {};
   for (const m of unretested) {
     if (!unretestedByCategory[m.category]) unretestedByCategory[m.category] = [];
@@ -398,7 +439,6 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
         <p className="text-sm text-neutral-400">No markers appear in multiple uploads yet.</p>
       )}
 
-      {/* Trended markers by category */}
       {sortedCats.map((cat) => (
         <div key={cat}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-3">
@@ -412,7 +452,7 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
         </div>
       ))}
 
-      {/* Not-yet-retested section */}
+      {/* Not yet retested */}
       {unretested.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -424,7 +464,7 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
             </span>
           </div>
           <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
-            These markers appeared in an older test but are not in your most recent upload. Consider retesting.
+            These markers appeared in an older test but are not in your most recent upload.
           </p>
           <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
             <table className="w-full text-sm">
@@ -439,15 +479,11 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
               <tbody>
                 {unretested.map((m, i) => (
                   <tr key={i} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
-                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
-                      {m.name}
-                    </td>
+                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{m.name}</td>
                     <td className={`px-4 py-2.5 font-mono ${statusColor(m.status)}`}>
                       {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
                     </td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs">
-                      {m.lastSeen}
-                    </td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs">{m.lastSeen}</td>
                     <td className="px-4 py-2.5">
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
                         Not retested
@@ -464,9 +500,9 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
   );
 }
 
-// ─── Marker Table (single result view) ─────────────────────────────────────────
+// ─── Marker Table ─────────────────────────────────────────────────────────────
 
-function MarkerTable({ markers }: { markers: Marker[] }) {
+function MarkerTable({ markers, refSource }: { markers: Marker[]; refSource: RefSource }) {
   const grouped: Record<string, Marker[]> = {};
   for (const m of markers) {
     const cat = categorize(m);
@@ -495,25 +531,28 @@ function MarkerTable({ markers }: { markers: Marker[] }) {
                 </tr>
               </thead>
               <tbody>
-                {grouped[cat].map((m, i) => (
-                  <tr
-                    key={i}
-                    className="border-b border-neutral-100 dark:border-neutral-800 last:border-0"
-                  >
-                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
-                      {m.name}
-                    </td>
-                    <td className={`px-4 py-2.5 font-mono ${statusColor(m.status)}`}>
-                      {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
-                    </td>
-                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs hidden sm:table-cell">
-                      {m.reference_range}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      <span className={statusBadge(m.status)}>{m.status}</span>
-                    </td>
-                  </tr>
-                ))}
+                {grouped[cat].map((m, i) => {
+                  const eff = getEffectiveStatus(m, refSource);
+                  return (
+                    <tr
+                      key={i}
+                      className="border-b border-neutral-100 dark:border-neutral-800 last:border-0"
+                    >
+                      <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
+                        {m.name}
+                      </td>
+                      <td className={`px-4 py-2.5 font-mono ${statusColor(eff)}`}>
+                        {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
+                      </td>
+                      <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs hidden sm:table-cell">
+                        {m.reference_range}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className={statusBadge(eff)}>{statusLabel(eff)}</span>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -523,7 +562,7 @@ function MarkerTable({ markers }: { markers: Marker[] }) {
   );
 }
 
-// ─── Confirm Panel (shown after upload, before DB save) ────────────────────────
+// ─── Confirm Panel (no reference range selector — global pref used instead) ───
 
 function ConfirmPanel({
   pending,
@@ -532,13 +571,12 @@ function ConfirmPanel({
   saving,
 }: {
   pending: PendingResult;
-  onSave: (testDate: string | null, labName: string | null, referenceSource: "lab" | "function_health") => void;
+  onSave: (testDate: string | null, labName: string | null) => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
   const [testDate, setTestDate] = useState(pending.test_date ?? "");
   const [labName, setLabName] = useState(pending.lab_name ?? "");
-  const [referenceSource, setReferenceSource] = useState<"lab" | "function_health">("lab");
   const dateFoundByAI = !!pending.test_date;
 
   const markerCount = pending.markers.length;
@@ -546,7 +584,6 @@ function ConfirmPanel({
 
   return (
     <div className="rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-900/10 p-5 space-y-5">
-      {/* Header */}
       <div>
         <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           Review before saving
@@ -563,7 +600,6 @@ function ConfirmPanel({
         </p>
       </div>
 
-      {/* Date field */}
       <div className="space-y-1.5">
         <label className="flex items-center gap-2 flex-wrap text-xs font-medium text-neutral-700 dark:text-neutral-300">
           Test Date
@@ -591,7 +627,6 @@ function ConfirmPanel({
         )}
       </div>
 
-      {/* Lab name field */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
           Lab Name
@@ -606,60 +641,9 @@ function ConfirmPanel({
         />
       </div>
 
-      {/* Reference range selector */}
-      <div className="space-y-2">
-        <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
-          Which reference ranges should we use?
-        </label>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <button
-            type="button"
-            onClick={() => setReferenceSource("lab")}
-            className={`flex-1 px-4 py-3 rounded-xl border text-left transition-all ${
-              referenceSource === "lab"
-                ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800"
-                : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
-            }`}
-          >
-            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Standard lab ranges</p>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Disease-prevention thresholds used by most labs
-            </p>
-          </button>
-          <button
-            type="button"
-            onClick={() => setReferenceSource("function_health")}
-            className={`flex-1 px-4 py-3 rounded-xl border text-left transition-all ${
-              referenceSource === "function_health"
-                ? "border-violet-500 bg-violet-50/50 dark:bg-violet-900/10"
-                : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
-            }`}
-          >
-            <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Function Health optimal</p>
-              {referenceSource === "function_health" && (
-                <span className="text-xs px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">selected</span>
-              )}
-            </div>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Stricter performance ranges — not just disease prevention
-            </p>
-          </button>
-        </div>
-        {referenceSource === "function_health" && (
-          <div className="rounded-lg bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800 px-4 py-3 text-xs text-violet-800 dark:text-violet-300 space-y-1">
-            <p className="font-medium mb-1">Function Health optimal ranges (examples):</p>
-            <p>Vitamin D: 60–80 ng/mL · Ferritin: 50–150 ng/mL · TSH: 0.5–2.0 mIU/L</p>
-            <p>Fasting glucose: 70–85 mg/dL · HbA1c: &lt;5.4% · LDL: &lt;100 mg/dL</p>
-            <p>Homocysteine: &lt;8 μmol/L · hsCRP: &lt;0.5 mg/L · Testosterone (M): 600–900 ng/dL</p>
-          </div>
-        )}
-      </div>
-
-      {/* Actions */}
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave(testDate || null, labName.trim() || null, referenceSource)}
+          onClick={() => onSave(testDate || null, labName.trim() || null)}
           disabled={saving}
           className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
@@ -677,6 +661,49 @@ function ConfirmPanel({
   );
 }
 
+// ─── Reference Range Setting Bar ─────────────────────────────────────────────
+
+function ReferenceRangeBar({
+  refSource,
+  onToggle,
+  saving,
+}: {
+  refSource: RefSource;
+  onToggle: (next: RefSource) => void;
+  saving: boolean;
+}) {
+  const isFH = refSource === "function_health";
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800/60 border border-neutral-200 dark:border-neutral-700">
+      <div className="flex items-center gap-2 flex-1 min-w-0">
+        <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400 shrink-0">
+          Reference ranges:
+        </span>
+        {isFH ? (
+          <span className="flex items-center gap-1 text-xs font-semibold text-violet-700 dark:text-violet-400">
+            <svg className="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+            </svg>
+            Function Health optimal
+          </span>
+        ) : (
+          <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+            Standard lab ranges
+          </span>
+        )}
+      </div>
+      <button
+        onClick={() => onToggle(isFH ? "lab" : "function_health")}
+        disabled={saving}
+        className="text-xs text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 underline underline-offset-2 decoration-dotted transition-colors disabled:opacity-50 shrink-0"
+      >
+        {saving ? "Saving…" : `Switch to ${isFH ? "standard" : "Function Health"}`}
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BloodworkPage() {
@@ -686,10 +713,13 @@ export default function BloodworkPage() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"latest" | "trends">("latest");
 
-  // Pending = extracted but not yet saved to DB
   const [pending, setPending] = useState<PendingResult | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Global reference range preference
+  const [refSource, setRefSource] = useState<RefSource>("function_health");
+  const [prefSaving, setPrefSaving] = useState(false);
 
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -703,9 +733,33 @@ export default function BloodworkPage() {
         }
       })
       .catch(console.error);
+
+    fetch("/api/user-preferences")
+      .then((r) => r.json())
+      .then((prefs) => {
+        if (prefs.bloodwork_reference_source) {
+          setRefSource(prefs.bloodwork_reference_source as RefSource);
+        }
+      })
+      .catch(console.error);
   }, []);
 
-  // Step 1: Upload file → get extracted data back (no DB write yet)
+  async function handleToggleRefSource(next: RefSource) {
+    setPrefSaving(true);
+    setRefSource(next);
+    try {
+      await fetch("/api/user-preferences", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bloodwork_reference_source: next }),
+      });
+    } catch {
+      // Non-fatal — UI already reflects the new value
+    } finally {
+      setPrefSaving(false);
+    }
+  }
+
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -734,12 +788,7 @@ export default function BloodworkPage() {
     }
   }
 
-  // Step 2: User confirms date + reference source → save to DB
-  async function handleSave(
-    testDate: string | null,
-    labName: string | null,
-    referenceSource: "lab" | "function_health"
-  ) {
+  async function handleSave(testDate: string | null, labName: string | null) {
     if (!pending) return;
     setSaving(true);
     setSaveError(null);
@@ -753,7 +802,6 @@ export default function BloodworkPage() {
           test_date: testDate,
           lab_name: labName,
           file_path: pending.file_path,
-          reference_source: referenceSource,
         }),
       });
       const data = await res.json();
@@ -778,8 +826,6 @@ export default function BloodworkPage() {
   }
 
   const hasTrends = results.length >= 2;
-
-  // Newest result = "Current" (results are ordered newest first from API)
   const newestResultId = results[0]?.id;
 
   return (
@@ -850,9 +896,7 @@ export default function BloodworkPage() {
 
       {results.length === 0 && !uploading && !pending && (
         <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 p-12 text-center">
-          <p className="text-neutral-500 dark:text-neutral-400 text-sm">
-            No bloodwork uploaded yet.
-          </p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">No bloodwork uploaded yet.</p>
           <p className="text-neutral-400 dark:text-neutral-600 text-xs mt-1">
             Upload a PDF or image of your lab results to get started.
           </p>
@@ -860,8 +904,15 @@ export default function BloodworkPage() {
       )}
 
       {results.length > 0 && (
-        <div className="space-y-6">
-          {/* Tab bar — only show if 2+ results */}
+        <div className="space-y-4">
+          {/* Global reference range setting */}
+          <ReferenceRangeBar
+            refSource={refSource}
+            onToggle={handleToggleRefSource}
+            saving={prefSaving}
+          />
+
+          {/* Tab bar */}
           {hasTrends && (
             <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-fit">
               <button
@@ -903,13 +954,13 @@ export default function BloodworkPage() {
                       }`}
                     >
                       {r.id === newestResultId && (
-                        <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${selected?.id === r.id ? "bg-white dark:bg-neutral-900" : "bg-emerald-500"}`} />
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${selected?.id === r.id ? "bg-white dark:bg-neutral-900" : "bg-emerald-500"}`} />
                       )}
-                      {r.id === newestResultId ? "Current" : (
-                        r.test_date
+                      {r.id === newestResultId
+                        ? "Current"
+                        : r.test_date
                           ? new Date(r.test_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                          : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                      )}
+                          : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       {r.lab_name && r.id !== newestResultId ? ` — ${r.lab_name}` : ""}
                       {!r.test_date && r.id !== newestResultId && <span className="ml-1 opacity-60">(no test date)</span>}
                     </button>
@@ -930,7 +981,6 @@ export default function BloodworkPage() {
                             Current
                           </span>
                         )}
-                        {refSourceBadge(selected.reference_source ?? "lab")}
                       </div>
                       {selected.test_date ? (
                         <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
@@ -952,10 +1002,18 @@ export default function BloodworkPage() {
                       ) : (
                         <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">No test date recorded</p>
                       )}
+                      <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
+                        Assessed against{" "}
+                        {refSource === "function_health"
+                          ? "Function Health optimal ranges"
+                          : "standard lab ranges"}
+                      </p>
                     </div>
                     <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400 shrink-0">
                       <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Normal</span>
-                      <span><span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1" />Low</span>
+                      {refSource === "function_health" && (
+                        <span><span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1" />Sub-opt</span>
+                      )}
                       <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />High</span>
                     </div>
                   </div>
@@ -963,7 +1021,7 @@ export default function BloodworkPage() {
                   {selected.markers.length === 0 ? (
                     <p className="text-sm text-neutral-400">No markers extracted from this file.</p>
                   ) : (
-                    <MarkerTable markers={selected.markers} />
+                    <MarkerTable markers={selected.markers} refSource={refSource} />
                   )}
                 </div>
               )}
@@ -972,7 +1030,7 @@ export default function BloodworkPage() {
 
           {/* Trends tab */}
           {activeTab === "trends" && hasTrends && (
-            <TrendSection results={results} />
+            <TrendSection results={results} refSource={refSource} />
           )}
         </div>
       )}
