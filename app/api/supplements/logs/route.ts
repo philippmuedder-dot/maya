@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ compliance: bySupp, days: 7 });
   }
 
-  // Today's taken supplements
+  // Today's supplement logs — all records (taken=true and taken=false)
   const { data, error } = await supabase
     .from("supplement_logs")
     .select("supplement_id, taken")
@@ -51,11 +51,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Split into explicitly taken and explicitly skipped
   const taken = (data ?? [])
-    .filter((r) => r.taken)
+    .filter((r) => r.taken === true)
     .map((r) => r.supplement_id as string);
 
-  return NextResponse.json({ taken, date: today });
+  const skipped = (data ?? [])
+    .filter((r) => r.taken === false)
+    .map((r) => r.supplement_id as string);
+
+  return NextResponse.json({ taken, skipped, date: today });
 }
 
 // POST — toggle a supplement as taken/untaken today

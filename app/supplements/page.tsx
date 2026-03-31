@@ -850,17 +850,22 @@ export default function SupplementsPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
 
-    // Merge explicit logs on top (user-confirmed taken/skipped today)
+    // Apply today's explicit logs:
+    // - taken=true  → keep in set (already there from active default)
+    // - taken=false → remove from set (user explicitly skipped)
     fetch("/api/supplements/logs")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data.taken)) {
-          setTakenToday((prev) => {
-            const next = new Set(prev);
+        setTakenToday((prev) => {
+          const next = new Set(prev);
+          if (Array.isArray(data.taken)) {
             data.taken.forEach((id: string) => next.add(id));
-            return next;
-          });
-        }
+          }
+          if (Array.isArray(data.skipped)) {
+            data.skipped.forEach((id: string) => next.delete(id));
+          }
+          return next;
+        });
       })
       .catch(console.error);
   }, []);
