@@ -18,6 +18,15 @@ async function refreshGoogleToken(token: JWT): Promise<JWT> {
     const data = await response.json();
     if (!response.ok) throw data;
 
+    // If Google returned a scope list and calendar is missing, the original
+    // consent pre-dated the calendar scope — the user must re-authorise.
+    if (
+      data.scope &&
+      !data.scope.includes("calendar")
+    ) {
+      return { ...token, error: "RefreshAccessTokenError" };
+    }
+
     return {
       ...token,
       accessToken: data.access_token,

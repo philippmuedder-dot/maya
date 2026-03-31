@@ -28,6 +28,25 @@ export async function GET() {
   // Fetch personal calendar events
   const result = await fetchCalendarEvents(session.accessToken);
 
+  // Detect scope errors — stale token issued before calendar scope was added.
+  // User must sign out and sign back in to re-consent.
+  if (
+    result.error &&
+    (result.error.includes("insufficient authentication scopes") ||
+      result.error.includes("insufficientPermissions") ||
+      result.error.includes("403"))
+  ) {
+    return NextResponse.json(
+      {
+        error: "CalendarScopeError",
+        message:
+          "Calendar access not authorised. Please sign out and sign back in to grant calendar permissions.",
+        needsReauth: true,
+      },
+      { status: 401 }
+    );
+  }
+
   // Attempt to fetch work calendar events if token exists
   if (session.user?.email) {
     try {
