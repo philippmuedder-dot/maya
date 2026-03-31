@@ -67,6 +67,7 @@ function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
 /** Normalize unit strings to a lowercase canonical form.
  *  Equivalent units (different names, same quantity) map to the same string:
  *  mEq/L = mmol/L (monovalent ions), mcg/dL = ug/dL, etc. */
+'miu/l': ['miu/l', 'mIU/L', 'mu/l', 'mU/L', 'uIU/mL', 'uiu/ml'],
 function normalizeUnit(unit: string): string {
   const u = unit.toLowerCase().trim().replace(/\s+/g, "");
   // Percent
