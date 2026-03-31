@@ -14,12 +14,12 @@ export async function PATCH(
   }
 
   const body = await req.json();
-  const { name, dose, unit, timing, purpose, notes, active } = body;
+  const { name, product_name, dose, unit, timing, purpose, notes, active } = body;
 
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("supplements")
-    .update({ name, dose, unit, timing, purpose, notes, active })
+    .update({ name, product_name: product_name || null, dose, unit, timing, purpose, notes, active })
     .eq("id", params.id)
     .eq("user_id", session.user.email)
     .select()

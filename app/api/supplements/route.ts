@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { name, dose, unit, timing, purpose, notes, active } = body;
+  const { name, product_name, dose, unit, timing, purpose, notes, active } = body;
 
   if (!name) {
     return NextResponse.json({ error: "Name is required." }, { status: 400 });
@@ -45,6 +45,7 @@ export async function POST(req: NextRequest) {
     .insert({
       user_id: session.user.email,
       name,
+      product_name: product_name || null,
       dose: dose ?? null,
       unit: unit || null,
       timing: timing || null,

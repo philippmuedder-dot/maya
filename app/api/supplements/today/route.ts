@@ -9,6 +9,7 @@ type Timing = (typeof TIMING_ORDER)[number];
 interface Supplement {
   id: string;
   name: string;
+  product_name: string | null;
   dose: number | null;
   unit: string | null;
   timing: Timing | null;
@@ -53,10 +54,48 @@ export async function GET() {
     grouped[key].push(s);
   }
 
-  // Remove empty groups
-  const result: Record<string, Supplement[]> = {};
+  // Collapse grouped supplements by product_name for cleaner briefing output
+  // Products show as one entry; ungrouped supplements stay as-is
+  interface DisplayEntry {
+    display_name: string;
+    product_name: string | null;
+    ingredients?: { name: string; dose: number | null; unit: string | null }[];
+    dose: number | null;
+    unit: string | null;
+    timing: string | null;
+  }
+
+  const result: Record<string, DisplayEntry[]> = {};
   for (const [key, list] of Object.entries(grouped)) {
-    if (list.length > 0) result[key] = list;
+    if (list.length === 0) continue;
+    const seen = new Map<string, DisplayEntry>();
+    const entries: DisplayEntry[] = [];
+    for (const s of list) {
+      if (s.product_name) {
+        if (!seen.has(s.product_name)) {
+          const entry: DisplayEntry = {
+            display_name: s.product_name,
+            product_name: s.product_name,
+            ingredients: [],
+            dose: null,
+            unit: null,
+            timing: s.timing,
+          };
+          seen.set(s.product_name, entry);
+          entries.push(entry);
+        }
+        seen.get(s.product_name)!.ingredients!.push({ name: s.name, dose: s.dose, unit: s.unit });
+      } else {
+        entries.push({
+          display_name: s.name,
+          product_name: null,
+          dose: s.dose,
+          unit: s.unit,
+          timing: s.timing,
+        });
+      }
+    }
+    result[key] = entries;
   }
 
   return NextResponse.json(result);

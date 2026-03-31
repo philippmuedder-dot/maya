@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useMemo } from "react";
 
 interface Supplement {
   id: string;
   name: string;
+  product_name: string | null;
   dose: number | null;
   unit: string | null;
   timing: "morning" | "afternoon" | "evening" | "night" | null;
@@ -34,6 +35,7 @@ const TIMING_COLORS: Record<string, string> = {
 
 const EMPTY_FORM = {
   name: "",
+  product_name: "",
   dose: "",
   unit: "mg",
   timing: "" as string,
@@ -290,6 +292,198 @@ function SupplementCard({
   );
 }
 
+// ─── Product Group Card ────────────────────────────────────────────────────────
+
+function ProductGroupCard({
+  productName,
+  supplements,
+  onEdit,
+  onToggleAll,
+  onToggleOne,
+  onDelete,
+  takenToday,
+  onToggleTaken,
+}: {
+  productName: string;
+  supplements: Supplement[];
+  onEdit: (s: Supplement) => void;
+  onToggleAll: (supplements: Supplement[], active: boolean) => void;
+  onToggleOne: (s: Supplement) => void;
+  onDelete: (id: string) => void;
+  takenToday: Set<string>;
+  onToggleTaken: (id: string, taken: boolean) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const allActive = supplements.every((s) => s.active);
+  const someActive = supplements.some((s) => s.active);
+  const activeSups = supplements.filter((s) => s.active);
+  const allTaken = activeSups.length > 0 && activeSups.every((s) => takenToday.has(s.id));
+
+  const timingLabel = (() => {
+    const timings = Array.from(new Set(supplements.map((s) => s.timing).filter(Boolean)));
+    return timings.map((t) => TIMING_LABELS[t!]).join(", ");
+  })();
+
+  return (
+    <div
+      className={`rounded-xl border transition-opacity ${
+        someActive
+          ? "border-neutral-200 dark:border-neutral-800"
+          : "border-neutral-100 dark:border-neutral-900 opacity-50"
+      }`}
+    >
+      {/* Header */}
+      <div className="flex items-center gap-3 p-4">
+        <div className="flex-1 min-w-0">
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            {productName}
+          </h3>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            {supplements.length} ingredient{supplements.length !== 1 ? "s" : ""}
+            {timingLabel ? ` · ${timingLabel}` : ""}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Taken toggle for whole group */}
+          {someActive && (
+            <button
+              onClick={() => activeSups.forEach((s) => onToggleTaken(s.id, !allTaken))}
+              title={allTaken ? "Mark group as not taken" : "Mark all as taken"}
+              className={`flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium transition-colors ${
+                allTaken
+                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                  : "border border-neutral-200 dark:border-neutral-700 text-neutral-400 dark:text-neutral-500 hover:border-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-400"
+              }`}
+            >
+              {allTaken ? (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+              ) : (
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <circle cx="12" cy="12" r="9" strokeLinecap="round" />
+                </svg>
+              )}
+              {allTaken ? "Taken" : "Take all"}
+            </button>
+          )}
+
+          {/* Pause/Resume all */}
+          <button
+            onClick={() => onToggleAll(supplements, !allActive)}
+            title={allActive ? "Pause product" : "Resume product"}
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            {allActive ? (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Expand/collapse */}
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+          >
+            <svg
+              className={`h-4 w-4 transition-transform ${expanded ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded: individual ingredients */}
+      {expanded && (
+        <div className="border-t border-neutral-100 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800">
+          {supplements.map((s) => (
+            <div
+              key={s.id}
+              className={`flex items-center gap-3 px-4 py-2.5 ${!s.active ? "opacity-50" : ""}`}
+            >
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-neutral-800 dark:text-neutral-200">{s.name}</span>
+                  {s.dose && (
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                      {s.dose}{s.unit || ""}
+                    </span>
+                  )}
+                  {s.timing && (
+                    <span
+                      className={`text-xs px-1.5 py-0.5 rounded-full ${
+                        TIMING_COLORS[s.timing] ??
+                        "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400"
+                      }`}
+                    >
+                      {TIMING_LABELS[s.timing]}
+                    </span>
+                  )}
+                </div>
+                {s.purpose && (
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{s.purpose}</p>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                {/* Individual pause toggle */}
+                <button
+                  onClick={() => onToggleOne(s)}
+                  title={s.active ? "Pause this ingredient" : "Activate this ingredient"}
+                  className="p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  {s.active ? (
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                </button>
+                {/* Edit individual */}
+                <button
+                  onClick={() => onEdit(s)}
+                  title="Edit"
+                  className="p-1 rounded text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                  </svg>
+                </button>
+                {/* Delete individual */}
+                <button
+                  onClick={() => onDelete(s.id)}
+                  title="Delete"
+                  className="p-1 rounded text-neutral-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Supplement Form ───────────────────────────────────────────────────────────
 
 function SupplementForm({
@@ -321,6 +515,20 @@ function SupplementForm({
             value={form.name}
             onChange={(e) => set("name", e.target.value)}
             placeholder="e.g. Magnesium Glycinate"
+            className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+          />
+        </div>
+
+        <div className="col-span-2">
+          <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+            Product name{" "}
+            <span className="font-normal text-neutral-400">(optional — groups ingredients, e.g. &ldquo;IM8 Longevity Daily&rdquo;)</span>
+          </label>
+          <input
+            type="text"
+            value={form.product_name}
+            onChange={(e) => set("product_name", e.target.value)}
+            placeholder="e.g. IM8 Longevity Daily"
             className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
           />
         </div>
@@ -630,16 +838,29 @@ export default function SupplementsPage() {
     fetch("/api/supplements")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data)) setSupplements(data);
+        if (Array.isArray(data)) {
+          setSupplements(data);
+          // Assume all active supplements are taken by default — no daily check-off required
+          const activeIds = data
+            .filter((s: Supplement) => s.active)
+            .map((s: Supplement) => s.id);
+          setTakenToday(new Set(activeIds));
+        }
       })
       .catch(console.error)
       .finally(() => setLoading(false));
 
-    // Load today's compliance
+    // Merge explicit logs on top (user-confirmed taken/skipped today)
     fetch("/api/supplements/logs")
       .then((r) => r.json())
       .then((data) => {
-        if (Array.isArray(data.taken)) setTakenToday(new Set(data.taken));
+        if (Array.isArray(data.taken)) {
+          setTakenToday((prev) => {
+            const next = new Set(prev);
+            data.taken.forEach((id: string) => next.add(id));
+            return next;
+          });
+        }
       })
       .catch(console.error);
   }, []);
@@ -672,6 +893,7 @@ export default function SupplementsPage() {
 
     const payload = {
       name: formData.name.trim(),
+      product_name: (formData.product_name as string).trim() || null,
       dose: formData.dose ? parseFloat(formData.dose as unknown as string) : null,
       unit: formData.unit || null,
       timing: formData.timing || null,
@@ -718,6 +940,35 @@ export default function SupplementsPage() {
     const data = await res.json();
     if (res.ok) {
       setSupplements((prev) => prev.map((x) => (x.id === s.id ? data : x)));
+      // Update assumed-taken when toggling active state
+      if (!s.active) {
+        setTakenToday((prev) => { const n = new Set(prev); n.add(s.id); return n; });
+      } else {
+        setTakenToday((prev) => { const n = new Set(prev); n.delete(s.id); return n; });
+      }
+    }
+  }
+
+  async function toggleAll(sups: Supplement[], active: boolean) {
+    const updated: Supplement[] = [];
+    for (const s of sups) {
+      const res = await fetch(`/api/supplements/${s.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...s, active }),
+      });
+      const data = await res.json();
+      if (res.ok) updated.push(data);
+    }
+    if (updated.length > 0) {
+      setSupplements((prev) =>
+        prev.map((x) => updated.find((u) => u.id === x.id) ?? x)
+      );
+      setTakenToday((prev) => {
+        const n = new Set(prev);
+        updated.forEach((u) => { if (active) n.add(u.id); else n.delete(u.id); });
+        return n;
+      });
     }
   }
 
@@ -827,6 +1078,21 @@ export default function SupplementsPage() {
 
   const activeCount = supplements.filter((s) => s.active).length;
 
+  // Group filtered supplements by product_name
+  const { productGroups, ungrouped } = useMemo(() => {
+    const groups = new Map<string, Supplement[]>();
+    const solo: Supplement[] = [];
+    for (const s of filtered) {
+      if (s.product_name) {
+        if (!groups.has(s.product_name)) groups.set(s.product_name, []);
+        groups.get(s.product_name)!.push(s);
+      } else {
+        solo.push(s);
+      }
+    }
+    return { productGroups: groups, ungrouped: solo };
+  }, [filtered]);
+
   // Group active by timing for summary row
   const timingGroups = TIMINGS.map((t) => ({
     timing: t,
@@ -921,6 +1187,7 @@ export default function SupplementsPage() {
             editTarget
               ? {
                   name: editTarget.name,
+                  product_name: editTarget.product_name ?? "",
                   dose: editTarget.dose !== null ? String(editTarget.dose) : "",
                   unit: editTarget.unit ?? "mg",
                   timing: editTarget.timing ?? "",
@@ -1061,7 +1328,22 @@ export default function SupplementsPage() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((s) => (
+          {/* Grouped product cards */}
+          {Array.from(productGroups.entries()).map(([productName, sups]) => (
+            <ProductGroupCard
+              key={productName}
+              productName={productName}
+              supplements={sups}
+              onEdit={openEdit}
+              onToggleAll={toggleAll}
+              onToggleOne={toggleActive}
+              onDelete={deleteSupplement}
+              takenToday={takenToday}
+              onToggleTaken={toggleTaken}
+            />
+          ))}
+          {/* Individual supplements (no product_name) */}
+          {ungrouped.map((s) => (
             <div key={s.id} className={deletingId === s.id ? "opacity-50 pointer-events-none" : ""}>
               <SupplementCard
                 supplement={s}
