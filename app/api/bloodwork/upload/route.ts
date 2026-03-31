@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
   const rangesToUpsert = parsed.markers
     .filter((m) => m.reference_min != null || m.reference_max != null)
     .map((m) => ({
-      user_id: session.user.email as string,
+      user_id: session.user?.email ?? "",
       marker_name: m.name.toLowerCase().trim(),
       optimal_min: m.reference_min ?? null,
       optimal_max: m.reference_max ?? null,
