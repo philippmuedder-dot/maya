@@ -62,70 +62,183 @@ function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
   });
 }
 
+// ─── Unit Normalization & Conversion ──────────────────────────────────────────
+
+/** Normalize unit strings to lowercase canonical form. */
+function normalizeUnit(unit: string): string {
+  const u = unit.toLowerCase().trim().replace(/\s+/g, "");
+  if (u === "percent" || u === "pct") return "%";
+  if (u === "ng/dl" || u === "ngdl") return "ng/dl";
+  if (u === "ng/ml" || u === "ngml") return "ng/ml";
+  if (u === "nmol/l" || u === "nmoll") return "nmol/l";
+  if (u === "mg/dl" || u === "mgdl") return "mg/dl";
+  if (u === "mmol/l" || u === "mmoll") return "mmol/l";
+  if (u === "mmol/mol") return "mmol/mol";
+  if (u === "mg/l" || u === "mgl") return "mg/l";
+  if (u === "μmol/l" || u === "umol/l" || u === "µmol/l") return "umol/l";
+  if (u === "miu/l" || u === "miu/ml" || u === "mlu/ml") return "miu/l";
+  if (u === "iu/l" || u === "u/l") return "iu/l";
+  return u;
+}
+
+// Conversion factors keyed as `${normalizedFrom}_to_${normalizedTo}`
+const UNIT_CONVERSIONS: Record<string, number> = {
+  // Hormones: ng/mL ↔ ng/dL
+  "ng/ml_to_ng/dl": 100,
+  "ng/dl_to_ng/ml": 0.01,
+  // Vitamin D: ng/mL ↔ nmol/L
+  "ng/ml_to_nmol/l": 2.496,
+  "nmol/l_to_ng/ml": 0.4006,
+  // Glucose: mg/dL ↔ mmol/L (metabolic, non-lipid)
+  "mg/dl_to_mmol/l": 0.0555,
+  "mmol/l_to_mg/dl": 18.0182,
+  // HbA1c: % ↔ mmol/mol (IFCC)
+  "%_to_mmol/mol": 10.929,
+  "mmol/mol_to_%": 0.0915,
+  // CRP / inflammation: mg/L ↔ mg/dL
+  "mg/l_to_mg/dl": 0.1,
+  "mg/dl_to_mg/l": 10,
+  // Homocysteine: μmol/L ↔ mg/L
+  "umol/l_to_mg/l": 0.135,
+  "mg/l_to_umol/l": 7.4,
+};
+
+// Lipid markers need a different mg/dL ↔ mmol/L factor (0.0259) vs glucose (0.0555)
+const LIPID_KEYWORDS = ["cholesterol", "ldl", "hdl", "triglyceride", "vldl", "lipoprotein", "apolipoprotein"];
+
+function getConversionFactor(fromUnit: string, toUnit: string, markerName: string): number | null {
+  const from = normalizeUnit(fromUnit);
+  const to = normalizeUnit(toUnit);
+  if (from === to) return 1;
+
+  const nameLower = markerName.toLowerCase();
+  const isLipid = LIPID_KEYWORDS.some((kw) => nameLower.includes(kw));
+  if (isLipid) {
+    if (from === "mg/dl" && to === "mmol/l") return 0.0259;
+    if (from === "mmol/l" && to === "mg/dl") return 38.61;
+  }
+
+  return UNIT_CONVERSIONS[`${from}_to_${to}`] ?? null;
+}
+
+interface ConversionResult {
+  convertedValue: number;
+  wasConverted: boolean;
+  conversionNote: string | null;
+  unitsIncompatible: boolean;
+}
+
+function applyUnitConversion(
+  value: number,
+  markerUnit: string,
+  rangeUnit: string | null | undefined,
+  markerName: string
+): ConversionResult {
+  if (!rangeUnit || !markerUnit) {
+    return { convertedValue: value, wasConverted: false, conversionNote: null, unitsIncompatible: false };
+  }
+  const fromNorm = normalizeUnit(markerUnit);
+  const toNorm = normalizeUnit(rangeUnit);
+  if (fromNorm === toNorm) {
+    return { convertedValue: value, wasConverted: false, conversionNote: null, unitsIncompatible: false };
+  }
+  const factor = getConversionFactor(markerUnit, rangeUnit, markerName);
+  if (factor !== null && factor !== 1) {
+    return {
+      convertedValue: value * factor,
+      wasConverted: true,
+      conversionNote: `${markerUnit} → ${rangeUnit}`,
+      unitsIncompatible: false,
+    };
+  }
+  if (factor === 1) {
+    return { convertedValue: value, wasConverted: false, conversionNote: null, unitsIncompatible: false };
+  }
+  return { convertedValue: value, wasConverted: false, conversionNote: null, unitsIncompatible: true };
+}
+
 // ─── Function Health Hardcoded Fallback Ranges ─────────────────────────────────
 
 interface OptimalRange {
   min?: number;
   max?: number;
+  unit: string; // canonical unit the range values are expressed in
 }
 
 const FH_OPTIMAL: [string, OptimalRange][] = [
-  ["vitamin d", { min: 60, max: 80 }],
-  ["ferritin", { min: 50, max: 150 }],
-  ["tsh", { min: 0.5, max: 2.0 }],
-  ["fasting glucose", { min: 70, max: 85 }],
-  ["glucose", { min: 70, max: 85 }],
-  ["hba1c", { max: 5.4 }],
-  ["hemoglobin a1c", { max: 5.4 }],
-  ["ldl", { max: 100 }],
-  ["homocysteine", { max: 8 }],
-  ["hs-crp", { max: 0.5 }],
-  ["hscrp", { max: 0.5 }],
-  ["high-sensitivity c-reactive", { max: 0.5 }],
-  ["c-reactive protein", { max: 0.5 }],
-  ["testosterone", { min: 600, max: 900 }],
+  ["vitamin d",                { min: 60,  max: 80,   unit: "ng/ml"  }],
+  ["ferritin",                 { min: 50,  max: 150,  unit: "ng/ml"  }],
+  ["tsh",                      { min: 0.5, max: 2.0,  unit: "miu/l"  }],
+  ["fasting glucose",          { min: 70,  max: 85,   unit: "mg/dl"  }],
+  ["glucose",                  { min: 70,  max: 85,   unit: "mg/dl"  }],
+  ["hba1c",                    { max: 5.4,            unit: "%"      }],
+  ["hemoglobin a1c",           { max: 5.4,            unit: "%"      }],
+  ["ldl",                      { max: 100,            unit: "mg/dl"  }],
+  ["homocysteine",             { max: 8,              unit: "umol/l" }],
+  ["hs-crp",                   { max: 0.5,            unit: "mg/l"   }],
+  ["hscrp",                    { max: 0.5,            unit: "mg/l"   }],
+  ["high-sensitivity c-reactive", { max: 0.5,         unit: "mg/l"   }],
+  ["c-reactive protein",       { max: 0.5,            unit: "mg/l"   }],
+  ["testosterone",             { min: 600, max: 900,  unit: "ng/dl"  }],
 ];
 
-// Returns { status, rangeSource } where rangeSource indicates which range was used
+// ─── Effective Status (with unit conversion) ──────────────────────────────────
+
+interface EffectiveStatusResult {
+  status: EffectiveStatus;
+  rangeSource: "stored" | "fh_default" | "lab";
+  conversionNote: string | null;
+  unitsIncompatible: boolean;
+}
+
 function getEffectiveStatus(
   marker: Marker,
   refSource: RefSource,
   dbRanges: Record<string, StoredRange>
-): { status: EffectiveStatus; rangeSource: "stored" | "fh_default" | "lab" } {
-  if (refSource !== "function_health") {
-    return { status: marker.status, rangeSource: "lab" };
-  }
+): EffectiveStatusResult {
+  const noOp: EffectiveStatusResult = { status: marker.status, rangeSource: "lab", conversionNote: null, unitsIncompatible: false };
+  if (refSource !== "function_health") return noOp;
 
   const numeric = parseNumericValue(marker.value);
-  if (numeric === null) return { status: marker.status, rangeSource: "lab" };
+  if (numeric === null) return noOp;
 
   const key = marker.name.toLowerCase().trim();
 
-  // 1. Check stored DB ranges first
+  // 1. Stored DB range (may have explicit unit)
   const stored = dbRanges[key];
   if (stored && (stored.optimal_min != null || stored.optimal_max != null)) {
-    const belowMin = stored.optimal_min != null && numeric < stored.optimal_min;
-    const aboveMax = stored.optimal_max != null && numeric > stored.optimal_max;
-    if ((belowMin || aboveMax) && marker.status === "normal") {
-      return { status: "suboptimal", rangeSource: "stored" };
+    const { convertedValue, conversionNote, unitsIncompatible } =
+      applyUnitConversion(numeric, marker.unit, stored.unit ?? marker.unit, marker.name);
+
+    if (unitsIncompatible) {
+      return { status: marker.status, rangeSource: "stored", conversionNote: null, unitsIncompatible: true };
     }
-    return { status: marker.status, rangeSource: "stored" };
+    const belowMin = stored.optimal_min != null && convertedValue < stored.optimal_min;
+    const aboveMax = stored.optimal_max != null && convertedValue > stored.optimal_max;
+    const status: EffectiveStatus =
+      (belowMin || aboveMax) && marker.status === "normal" ? "suboptimal" : marker.status;
+    return { status, rangeSource: "stored", conversionNote, unitsIncompatible: false };
   }
 
-  // 2. Fall back to hardcoded FH ranges
+  // 2. Hardcoded FH ranges — each has an explicit unit
   const nameLower = marker.name.toLowerCase();
   for (const [fhKey, range] of FH_OPTIMAL) {
     if (nameLower.includes(fhKey)) {
-      const belowMin = range.min !== undefined && numeric < range.min;
-      const aboveMax = range.max !== undefined && numeric > range.max;
-      if ((belowMin || aboveMax) && marker.status === "normal") {
-        return { status: "suboptimal", rangeSource: "fh_default" };
+      const { convertedValue, conversionNote, unitsIncompatible } =
+        applyUnitConversion(numeric, marker.unit, range.unit, marker.name);
+
+      if (unitsIncompatible) {
+        return { status: marker.status, rangeSource: "fh_default", conversionNote: null, unitsIncompatible: true };
       }
-      return { status: marker.status, rangeSource: "fh_default" };
+      const belowMin = range.min !== undefined && convertedValue < range.min;
+      const aboveMax = range.max !== undefined && convertedValue > range.max;
+      const status: EffectiveStatus =
+        (belowMin || aboveMax) && marker.status === "normal" ? "suboptimal" : marker.status;
+      return { status, rangeSource: "fh_default", conversionNote, unitsIncompatible: false };
     }
   }
 
-  return { status: marker.status, rangeSource: "lab" };
+  return noOp;
 }
 
 // ─── Categories ───────────────────────────────────────────────────────────────
@@ -529,27 +642,30 @@ function MarkerTable({
               </thead>
               <tbody>
                 {grouped[cat].map((m, i) => {
-                  const { status: eff, rangeSource } = getEffectiveStatus(m, refSource, dbRanges);
+                  const { status: eff, rangeSource, conversionNote, unitsIncompatible } =
+                    getEffectiveStatus(m, refSource, dbRanges);
                   const key = m.name.toLowerCase().trim();
                   const stored = dbRanges[key];
 
                   // Build the optimal range display string
                   let optimalRangeStr = m.reference_range;
                   let rangeLabel: string | null = null;
+                  let rangeUnit: string | null = null;
                   if (refSource === "function_health") {
                     if (stored && (stored.optimal_min != null || stored.optimal_max != null)) {
                       const min = stored.optimal_min != null ? stored.optimal_min : "–";
                       const max = stored.optimal_max != null ? stored.optimal_max : "–";
+                      rangeUnit = stored.unit ?? null;
                       optimalRangeStr = `${min}–${max}${stored.unit ? ` ${stored.unit}` : ""}`;
                       rangeLabel = stored.source || "from your lab";
                     } else {
-                      // Check FH hardcoded
                       const nameLower = m.name.toLowerCase();
                       for (const [fhKey, range] of FH_OPTIMAL) {
                         if (nameLower.includes(fhKey)) {
                           const min = range.min != null ? range.min : "–";
                           const max = range.max != null ? range.max : "–";
-                          optimalRangeStr = `${min}–${max}${m.unit ? ` ${m.unit}` : ""}`;
+                          rangeUnit = range.unit;
+                          optimalRangeStr = `${min}–${max} ${range.unit}`;
                           rangeLabel = "FH default";
                           break;
                         }
@@ -557,26 +673,44 @@ function MarkerTable({
                     }
                   }
 
+                  // Suppress rangeUnit display if same as marker unit (no noise)
+                  const showRangeUnit = rangeUnit && normalizeUnit(rangeUnit) !== normalizeUnit(m.unit || "");
+
                   return (
                     <tr key={i} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
                       <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{m.name}</td>
-                      <td className={`px-4 py-2.5 font-mono ${statusColor(eff)}`}>
+                      <td className={`px-4 py-2.5 font-mono ${unitsIncompatible ? "text-neutral-500" : statusColor(eff)}`}>
                         {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
                       </td>
                       <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs hidden sm:table-cell">
-                        <span>{optimalRangeStr}</span>
-                        {rangeLabel && rangeSource !== "lab" && (
-                          <span className={`ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-medium ${
-                            rangeSource === "stored"
-                              ? "bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
-                              : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
-                          }`}>
-                            {rangeSource === "stored" ? rangeLabel : "FH"}
-                          </span>
-                        )}
+                        <div className="flex flex-col gap-0.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{showRangeUnit ? optimalRangeStr : optimalRangeStr.replace(` ${rangeUnit}`, "")}</span>
+                            {rangeLabel && rangeSource !== "lab" && (
+                              <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                                rangeSource === "stored"
+                                  ? "bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400"
+                                  : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
+                              }`}>
+                                {rangeSource === "stored" ? rangeLabel : "FH"}
+                              </span>
+                            )}
+                          </div>
+                          {conversionNote && (
+                            <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
+                              converted for comparison ({conversionNote})
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-2.5">
-                        <span className={statusBadge(eff)}>{statusLabel(eff)}</span>
+                        {unitsIncompatible ? (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                            ⚠ Units differ
+                          </span>
+                        ) : (
+                          <span className={statusBadge(eff)}>{statusLabel(eff)}</span>
+                        )}
                       </td>
                     </tr>
                   );
