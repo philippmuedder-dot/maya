@@ -189,6 +189,8 @@ interface EffectiveStatusResult {
   rangeSource: "stored" | "fh_default" | "lab";
   conversionNote: string | null;
   unitsIncompatible: boolean;
+  convertedValue: number | null;   // null = no conversion applied
+  convertedUnit: string | null;    // the unit the converted value is in
 }
 
 function getEffectiveStatus(
@@ -196,7 +198,7 @@ function getEffectiveStatus(
   refSource: RefSource,
   dbRanges: Record<string, StoredRange>
 ): EffectiveStatusResult {
-  const noOp: EffectiveStatusResult = { status: marker.status, rangeSource: "lab", conversionNote: null, unitsIncompatible: false };
+  const noOp: EffectiveStatusResult = { status: marker.status, rangeSource: "lab", conversionNote: null, unitsIncompatible: false, convertedValue: null, convertedUnit: null };
   if (refSource !== "function_health") return noOp;
 
   const numeric = parseNumericValue(marker.value);
@@ -207,34 +209,42 @@ function getEffectiveStatus(
   // 1. Stored DB range (may have explicit unit)
   const stored = dbRanges[key];
   if (stored && (stored.optimal_min != null || stored.optimal_max != null)) {
-    const { convertedValue, conversionNote, unitsIncompatible } =
+    const { convertedValue, wasConverted, conversionNote, unitsIncompatible } =
       applyUnitConversion(numeric, marker.unit, stored.unit ?? marker.unit, marker.name);
 
     if (unitsIncompatible) {
-      return { status: marker.status, rangeSource: "stored", conversionNote: null, unitsIncompatible: true };
+      return { status: marker.status, rangeSource: "stored", conversionNote: null, unitsIncompatible: true, convertedValue: null, convertedUnit: null };
     }
     const belowMin = stored.optimal_min != null && convertedValue < stored.optimal_min;
     const aboveMax = stored.optimal_max != null && convertedValue > stored.optimal_max;
     const status: EffectiveStatus =
       (belowMin || aboveMax) && marker.status === "normal" ? "suboptimal" : marker.status;
-    return { status, rangeSource: "stored", conversionNote, unitsIncompatible: false };
+    return {
+      status, rangeSource: "stored", conversionNote, unitsIncompatible: false,
+      convertedValue: wasConverted ? convertedValue : null,
+      convertedUnit: wasConverted ? (stored.unit ?? null) : null,
+    };
   }
 
   // 2. Hardcoded FH ranges — each has an explicit unit
   const nameLower = marker.name.toLowerCase();
   for (const [fhKey, range] of FH_OPTIMAL) {
     if (nameLower.includes(fhKey)) {
-      const { convertedValue, conversionNote, unitsIncompatible } =
+      const { convertedValue, wasConverted, conversionNote, unitsIncompatible } =
         applyUnitConversion(numeric, marker.unit, range.unit, marker.name);
 
       if (unitsIncompatible) {
-        return { status: marker.status, rangeSource: "fh_default", conversionNote: null, unitsIncompatible: true };
+        return { status: marker.status, rangeSource: "fh_default", conversionNote: null, unitsIncompatible: true, convertedValue: null, convertedUnit: null };
       }
       const belowMin = range.min !== undefined && convertedValue < range.min;
       const aboveMax = range.max !== undefined && convertedValue > range.max;
       const status: EffectiveStatus =
         (belowMin || aboveMax) && marker.status === "normal" ? "suboptimal" : marker.status;
-      return { status, rangeSource: "fh_default", conversionNote, unitsIncompatible: false };
+      return {
+        status, rangeSource: "fh_default", conversionNote, unitsIncompatible: false,
+        convertedValue: wasConverted ? convertedValue : null,
+        convertedUnit: wasConverted ? range.unit : null,
+      };
     }
   }
 
@@ -642,7 +652,7 @@ function MarkerTable({
               </thead>
               <tbody>
                 {grouped[cat].map((m, i) => {
-                  const { status: eff, rangeSource, conversionNote, unitsIncompatible } =
+                  const { status: eff, rangeSource, conversionNote, unitsIncompatible, convertedValue, convertedUnit } =
                     getEffectiveStatus(m, refSource, dbRanges);
                   const key = m.name.toLowerCase().trim();
                   const stored = dbRanges[key];
@@ -681,6 +691,11 @@ function MarkerTable({
                       <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">{m.name}</td>
                       <td className={`px-4 py-2.5 font-mono ${unitsIncompatible ? "text-neutral-500" : statusColor(eff)}`}>
                         {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
+                        {convertedValue != null && convertedUnit && (
+                          <span className="text-neutral-400 text-xs ml-1 font-normal">
+                            ({Number(convertedValue.toPrecision(4))} <span className="text-neutral-400">{convertedUnit}</span>)
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs hidden sm:table-cell">
                         <div className="flex flex-col gap-0.5">
@@ -696,9 +711,9 @@ function MarkerTable({
                               </span>
                             )}
                           </div>
-                          {conversionNote && (
+                          {conversionNote && !convertedValue && (
                             <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-                              converted for comparison ({conversionNote})
+                              converted for comparison
                             </span>
                           )}
                         </div>
