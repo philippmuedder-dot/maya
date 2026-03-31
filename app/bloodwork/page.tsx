@@ -46,6 +46,16 @@ interface StoredRange {
 type RefSource = "lab" | "function_health";
 type EffectiveStatus = "normal" | "low" | "high" | "suboptimal";
 
+/** Sort bloodwork results newest-first by test_date; records without a test_date go last. */
+function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
+  return [...results].sort((a, b) => {
+    if (!a.test_date && !b.test_date) return 0;
+    if (!a.test_date) return 1;   // nulls last
+    if (!b.test_date) return -1;
+    return b.test_date.localeCompare(a.test_date); // descending
+  });
+}
+
 // ─── Function Health Hardcoded Fallback Ranges ─────────────────────────────────
 
 interface OptimalRange {
@@ -738,8 +748,9 @@ export default function BloodworkPage() {
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
-          setResults(data);
-          if (data.length > 0) setSelected(data[0]);
+          const sorted = sortByTestDate(data);
+          setResults(sorted);
+          if (sorted.length > 0) setSelected(sorted[0]);
         }
       })
       .catch(console.error);
@@ -840,9 +851,9 @@ export default function BloodworkPage() {
       if (!res.ok) {
         setSaveError(data.error ?? "Failed to save.");
       } else {
-        const updated = [data as BloodworkResult, ...results];
+        const updated = sortByTestDate([data as BloodworkResult, ...results]);
         setResults(updated);
-        setSelected(data as BloodworkResult);
+        setSelected(updated[0]);
         setPending(null);
       }
     } catch {
