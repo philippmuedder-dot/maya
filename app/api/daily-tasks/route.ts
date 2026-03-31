@@ -43,14 +43,15 @@ export async function GET() {
     .select("*")
     .eq("user_id", session.user.email)
     .eq("completed", false)
+    .neq("snoozed", true)
     .lte("date", threeDaysAgoStr)
     .order("date", { ascending: true });
 
   // Deduplicate stale tasks by task text — only show unique task names
-  const staleByText = new Map<string, { task: string; date: string }>();
-  (staleTasks ?? []).forEach((t: { task: string; date: string }) => {
+  const staleByText = new Map<string, { id: string; task: string; date: string }>();
+  (staleTasks ?? []).forEach((t: { id: string; task: string; date: string }) => {
     if (!staleByText.has(t.task)) {
-      staleByText.set(t.task, t);
+      staleByText.set(t.task, { id: t.id, task: t.task, date: t.date });
     }
   });
 
@@ -115,17 +116,22 @@ export async function PATCH(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { id, completed } = body;
+  const { id, completed, snoozed, date } = body;
 
   if (!id) {
     return NextResponse.json({ error: "Missing task id" }, { status: 400 });
   }
 
+  const updates: Record<string, unknown> = {};
+  if (completed !== undefined) updates.completed = completed;
+  if (snoozed !== undefined) updates.snoozed = snoozed;
+  if (date !== undefined) updates.date = date;
+
   const supabase = createServiceClient();
 
   const { data, error } = await supabase
     .from("daily_tasks")
-    .update({ completed })
+    .update(updates)
     .eq("id", id)
     .eq("user_id", session.user.email)
     .select()
