@@ -36,6 +36,7 @@ interface PendingResult {
 }
 
 interface StoredRange {
+  id: string;
   marker_name: string;
   optimal_min: number | null;
   optimal_max: number | null;
@@ -45,6 +46,7 @@ interface StoredRange {
 
 type RefSource = "lab" | "function_health";
 type EffectiveStatus = "normal" | "low" | "high" | "suboptimal";
+type ActiveTab = "latest" | "trends" | "ranges";
 
 /** Sort bloodwork results newest-first by test_date (ISO strings compare correctly as strings).
  *  Records without a test_date always go last. */
@@ -728,6 +730,356 @@ function ReferenceRangeBar({
   );
 }
 
+// ─── Reference Ranges Editor Tab ──────────────────────────────────────────────
+
+interface NewRangeForm {
+  marker_name: string;
+  optimal_min: string;
+  optimal_max: string;
+  unit: string;
+  source: string;
+}
+
+const EMPTY_NEW: NewRangeForm = { marker_name: "", optimal_min: "", optimal_max: "", unit: "", source: "custom" };
+
+function RangesTab({
+  dbRanges,
+  onRangesChange,
+}: {
+  dbRanges: Record<string, StoredRange>;
+  onRangesChange: (updated: Record<string, StoredRange>) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editValues, setEditValues] = useState<Partial<StoredRange>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newRange, setNewRange] = useState<NewRangeForm>(EMPTY_NEW);
+  const [addSaving, setAddSaving] = useState(false);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const sorted = Object.values(dbRanges).sort((a, b) =>
+    a.marker_name.localeCompare(b.marker_name)
+  );
+  const filtered = search.trim()
+    ? sorted.filter((r) => r.marker_name.toLowerCase().includes(search.toLowerCase().trim()))
+    : sorted;
+
+  function startEdit(r: StoredRange) {
+    setEditingId(r.id);
+    setEditValues({
+      optimal_min: r.optimal_min,
+      optimal_max: r.optimal_max,
+      unit: r.unit ?? "",
+      source: r.source ?? "",
+    });
+    setRowError(null);
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditValues({});
+    setRowError(null);
+  }
+
+  async function saveEdit(r: StoredRange) {
+    setSavingId(r.id);
+    setRowError(null);
+    try {
+      const res = await fetch(`/api/bloodwork/reference-ranges/${r.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          optimal_min: editValues.optimal_min !== "" && editValues.optimal_min != null ? Number(editValues.optimal_min) : null,
+          optimal_max: editValues.optimal_max !== "" && editValues.optimal_max != null ? Number(editValues.optimal_max) : null,
+          unit: editValues.unit || null,
+          source: editValues.source || null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setRowError(data.error ?? "Save failed"); return; }
+      const updated = { ...dbRanges };
+      updated[data.marker_name] = data as StoredRange;
+      onRangesChange(updated);
+      setEditingId(null);
+    } catch {
+      setRowError("Save failed");
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function deleteRange(r: StoredRange) {
+    if (!confirm(`Remove optimal range for "${r.marker_name}"? It will fall back to Function Health defaults.`)) return;
+    setDeletingId(r.id);
+    setRowError(null);
+    try {
+      const res = await fetch(`/api/bloodwork/reference-ranges/${r.id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 204) { setRowError("Delete failed"); return; }
+      const updated = { ...dbRanges };
+      delete updated[r.marker_name];
+      onRangesChange(updated);
+    } catch {
+      setRowError("Delete failed");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
+  async function addRange() {
+    if (!newRange.marker_name.trim()) { setRowError("Marker name is required"); return; }
+    setAddSaving(true);
+    setRowError(null);
+    try {
+      const res = await fetch("/api/bloodwork/reference-ranges", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          marker_name: newRange.marker_name.trim(),
+          optimal_min: newRange.optimal_min !== "" ? Number(newRange.optimal_min) : null,
+          optimal_max: newRange.optimal_max !== "" ? Number(newRange.optimal_max) : null,
+          unit: newRange.unit.trim() || null,
+          source: newRange.source.trim() || "custom",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setRowError(data.error ?? "Add failed"); return; }
+      const updated = { ...dbRanges };
+      updated[(data as StoredRange).marker_name] = data as StoredRange;
+      onRangesChange(updated);
+      setNewRange(EMPTY_NEW);
+      setShowAdd(false);
+    } catch {
+      setRowError("Add failed");
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  const inputCls = "w-full px-2 py-1 text-xs rounded border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-1 focus:ring-violet-500";
+  const numInputCls = `${inputCls} w-20`;
+
+  return (
+    <div className="space-y-4">
+      {/* Header row */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="relative flex-1 min-w-48">
+          <svg className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-neutral-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+          </svg>
+          <input
+            type="text"
+            placeholder="Search markers…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-8 pr-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+          />
+          {search && (
+            <button onClick={() => setSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-neutral-400">{filtered.length} / {sorted.length} ranges</span>
+          <button
+            onClick={() => { setShowAdd((s) => !s); setRowError(null); }}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-violet-600 hover:bg-violet-700 text-white transition-colors"
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Add range
+          </button>
+        </div>
+      </div>
+
+      {rowError && (
+        <p className="text-xs text-red-600 dark:text-red-400">{rowError}</p>
+      )}
+
+      {/* Add form */}
+      {showAdd && (
+        <div className="rounded-xl border border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-900/10 p-4 space-y-3">
+          <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">New reference range</p>
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <div className="col-span-2 sm:col-span-2">
+              <label className="block text-[10px] text-neutral-500 mb-0.5">Marker name</label>
+              <input type="text" placeholder="e.g. vitamin d" value={newRange.marker_name} onChange={(e) => setNewRange((p) => ({ ...p, marker_name: e.target.value }))} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] text-neutral-500 mb-0.5">Optimal min</label>
+              <input type="number" placeholder="–" value={newRange.optimal_min} onChange={(e) => setNewRange((p) => ({ ...p, optimal_min: e.target.value }))} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] text-neutral-500 mb-0.5">Optimal max</label>
+              <input type="number" placeholder="–" value={newRange.optimal_max} onChange={(e) => setNewRange((p) => ({ ...p, optimal_max: e.target.value }))} className={inputCls} />
+            </div>
+            <div>
+              <label className="block text-[10px] text-neutral-500 mb-0.5">Unit</label>
+              <input type="text" placeholder="ng/mL" value={newRange.unit} onChange={(e) => setNewRange((p) => ({ ...p, unit: e.target.value }))} className={inputCls} />
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="w-40">
+              <label className="block text-[10px] text-neutral-500 mb-0.5">Source</label>
+              <input type="text" placeholder="custom" value={newRange.source} onChange={(e) => setNewRange((p) => ({ ...p, source: e.target.value }))} className={inputCls} />
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={addRange} disabled={addSaving} className="px-3 py-1.5 rounded-lg text-xs font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:opacity-50 transition-colors">
+                {addSaving ? "Saving…" : "Save"}
+              </button>
+              <button onClick={() => { setShowAdd(false); setNewRange(EMPTY_NEW); setRowError(null); }} className="px-3 py-1.5 rounded-lg text-xs font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Table */}
+      {filtered.length === 0 ? (
+        <p className="text-sm text-neutral-400 py-8 text-center">
+          {sorted.length === 0 ? "No reference ranges stored yet. Upload a bloodwork report to populate them." : "No markers match your search."}
+        </p>
+      ) : (
+        <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800">
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-600 dark:text-neutral-400">Marker</th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-600 dark:text-neutral-400">Min</th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-600 dark:text-neutral-400">Max</th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-600 dark:text-neutral-400 hidden sm:table-cell">Unit</th>
+                <th className="text-left px-4 py-2.5 font-medium text-neutral-600 dark:text-neutral-400 hidden sm:table-cell">Source</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r) => {
+                const isEditing = editingId === r.id;
+                const isSaving = savingId === r.id;
+                const isDeleting = deletingId === r.id;
+
+                return (
+                  <tr key={r.id} className={`border-b border-neutral-100 dark:border-neutral-800 last:border-0 ${isEditing ? "bg-violet-50/30 dark:bg-violet-900/10" : ""}`}>
+                    {/* Marker name — never editable (it's the key) */}
+                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100 capitalize">
+                      {r.marker_name}
+                    </td>
+
+                    {/* Min */}
+                    <td className="px-4 py-2.5 text-neutral-700 dark:text-neutral-300 font-mono text-xs">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editValues.optimal_min ?? ""}
+                          onChange={(e) => setEditValues((p) => ({ ...p, optimal_min: e.target.value === "" ? null : Number(e.target.value) }))}
+                          className={numInputCls}
+                          placeholder="–"
+                        />
+                      ) : (
+                        r.optimal_min != null ? r.optimal_min : <span className="text-neutral-400">–</span>
+                      )}
+                    </td>
+
+                    {/* Max */}
+                    <td className="px-4 py-2.5 text-neutral-700 dark:text-neutral-300 font-mono text-xs">
+                      {isEditing ? (
+                        <input
+                          type="number"
+                          value={editValues.optimal_max ?? ""}
+                          onChange={(e) => setEditValues((p) => ({ ...p, optimal_max: e.target.value === "" ? null : Number(e.target.value) }))}
+                          className={numInputCls}
+                          placeholder="–"
+                        />
+                      ) : (
+                        r.optimal_max != null ? r.optimal_max : <span className="text-neutral-400">–</span>
+                      )}
+                    </td>
+
+                    {/* Unit */}
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs hidden sm:table-cell">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={String(editValues.unit ?? "")}
+                          onChange={(e) => setEditValues((p) => ({ ...p, unit: e.target.value }))}
+                          className={`${inputCls} w-20`}
+                          placeholder="unit"
+                        />
+                      ) : (
+                        r.unit || <span className="text-neutral-300 dark:text-neutral-600">–</span>
+                      )}
+                    </td>
+
+                    {/* Source */}
+                    <td className="px-4 py-2.5 text-xs hidden sm:table-cell">
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={String(editValues.source ?? "")}
+                          onChange={(e) => setEditValues((p) => ({ ...p, source: e.target.value }))}
+                          className={`${inputCls} w-28`}
+                          placeholder="source"
+                        />
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400">
+                          {r.source || "–"}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-4 py-2.5">
+                      <div className="flex items-center gap-2 justify-end">
+                        {isEditing ? (
+                          <>
+                            <button
+                              onClick={() => saveEdit(r)}
+                              disabled={isSaving}
+                              className="px-2.5 py-1 rounded text-xs font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:opacity-50 transition-colors"
+                            >
+                              {isSaving ? "…" : "Save"}
+                            </button>
+                            <button
+                              onClick={cancelEdit}
+                              disabled={isSaving}
+                              className="px-2.5 py-1 rounded text-xs font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              onClick={() => startEdit(r)}
+                              disabled={!!editingId || isDeleting}
+                              className="px-2.5 py-1 rounded text-xs font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 disabled:opacity-40 transition-colors"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => deleteRange(r)}
+                              disabled={!!editingId || isDeleting}
+                              className="px-2.5 py-1 rounded text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-40 transition-colors"
+                            >
+                              {isDeleting ? "…" : "Delete"}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
 export default function BloodworkPage() {
@@ -735,7 +1087,7 @@ export default function BloodworkPage() {
   const [selected, setSelected] = useState<BloodworkResult | null>(null);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"latest" | "trends">("latest");
+  const [activeTab, setActiveTab] = useState<ActiveTab>("latest");
 
   const [pending, setPending] = useState<PendingResult | null>(null);
   const [saving, setSaving] = useState(false);
@@ -872,6 +1224,10 @@ export default function BloodworkPage() {
     setSaveError(null);
   }
 
+  function onRangesChange(updated: Record<string, StoredRange>) {
+    setDbRanges(updated);
+  }
+
   const hasTrends = results.length >= 2;
   const newestResultId = results[0]?.id;
   const storedRangeCount = Object.keys(dbRanges).length;
@@ -939,22 +1295,32 @@ export default function BloodworkPage() {
         <div className="space-y-4">
           <ReferenceRangeBar refSource={refSource} storedCount={storedRangeCount} onToggle={handleToggleRefSource} saving={prefSaving} />
 
-          {hasTrends && (
-            <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-fit">
-              <button
-                onClick={() => setActiveTab("latest")}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === "latest" ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm" : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"}`}
-              >
-                Latest Results
-              </button>
-              <button
-                onClick={() => setActiveTab("trends")}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === "trends" ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm" : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"}`}
-              >
-                Trends
-              </button>
-            </div>
-          )}
+          {/* Tab bar — always visible when results exist */}
+          <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl w-fit">
+            <button
+              onClick={() => setActiveTab("latest")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === "latest" ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm" : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"}`}
+            >
+              Latest
+            </button>
+            <button
+              onClick={() => setActiveTab("trends")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === "trends" ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm" : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"}`}
+            >
+              Trends
+            </button>
+            <button
+              onClick={() => setActiveTab("ranges")}
+              className={`flex items-center gap-1.5 px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === "ranges" ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm" : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"}`}
+            >
+              Ranges
+              {storedRangeCount > 0 && (
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${activeTab === "ranges" ? "bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300" : "bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400"}`}>
+                  {storedRangeCount}
+                </span>
+              )}
+            </button>
+          </div>
 
           {activeTab === "latest" && (
             <>
@@ -1040,8 +1406,14 @@ export default function BloodworkPage() {
             </>
           )}
 
-          {activeTab === "trends" && hasTrends && (
-            <TrendSection results={results} refSource={refSource} dbRanges={dbRanges} />
+          {activeTab === "trends" && (
+            hasTrends
+              ? <TrendSection results={results} refSource={refSource} dbRanges={dbRanges} />
+              : <p className="text-sm text-neutral-400 py-6">Upload a second bloodwork report to see trends across tests.</p>
+          )}
+
+          {activeTab === "ranges" && (
+            <RangesTab dbRanges={dbRanges} onRangesChange={onRangesChange} />
           )}
         </div>
       )}
