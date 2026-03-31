@@ -23,6 +23,7 @@ interface BloodworkResult {
   test_date: string | null;
   lab_name: string | null;
   markers: Marker[];
+  reference_source: "lab" | "function_health";
   created_at: string;
 }
 
@@ -66,6 +67,21 @@ function statusBadge(status: string) {
   return `${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400`;
 }
 
+function refSourceBadge(source: "lab" | "function_health") {
+  if (source === "function_health") {
+    return (
+      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">
+        Function Health ranges
+      </span>
+    );
+  }
+  return (
+    <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
+      Standard lab ranges
+    </span>
+  );
+}
+
 // ─── Trend Helpers ─────────────────────────────────────────────────────────────
 
 interface TrendPoint {
@@ -87,34 +103,38 @@ interface MarkerTrendData {
   trend: "improving" | "worsening" | "stable";
 }
 
+// Marker that only appears in older tests — not in the most recent
+interface UnretestedMarker {
+  name: string;
+  unit: string;
+  value: string;
+  status: "normal" | "low" | "high";
+  lastSeen: string; // date label
+  category: string;
+}
+
 function parseNumericValue(val: string): number | null {
   const cleaned = val.replace(/[<>~≤≥]/g, "").trim();
   const n = parseFloat(cleaned);
   return isNaN(n) ? null : n;
 }
 
-/** Determine if movement is "improving" based on status transitions */
 function determineTrend(
   prev: TrendPoint,
   latest: TrendPoint,
   deltaPercent: number
 ): "improving" | "worsening" | "stable" {
   if (Math.abs(deltaPercent) < 5) return "stable";
-
-  // If status improved (was out of range, now normal)
   if (prev.status !== "normal" && latest.status === "normal") return "improving";
-  // If status worsened (was normal, now out of range)
   if (prev.status === "normal" && latest.status !== "normal") return "worsening";
-
-  // Both out of range but moving toward normal = improving
-  // Both normal — just track direction as stable
   if (latest.status === "normal" && prev.status === "normal") return "stable";
-
-  return Math.abs(deltaPercent) >= 5 ? "stable" : "stable";
+  return "stable";
 }
 
-function buildTrendData(results: BloodworkResult[]): Record<string, MarkerTrendData> {
-  // Sort results oldest → newest
+function buildTrendData(results: BloodworkResult[]): {
+  trendData: Record<string, MarkerTrendData>;
+  unretested: UnretestedMarker[];
+} {
   const sorted = [...results].sort((a, b) => {
     const aDate = a.test_date ?? a.created_at;
     const bDate = b.test_date ?? b.created_at;
@@ -123,6 +143,12 @@ function buildTrendData(results: BloodworkResult[]): Record<string, MarkerTrendD
 
   const markerMap: Record<string, TrendPoint[]> = {};
   const markerMeta: Record<string, { unit: string; name: string }> = {};
+
+  // Track which markers appear in the latest (most recent) result
+  const latestResult = sorted[sorted.length - 1];
+  const latestMarkerKeys = new Set(
+    latestResult.markers.map((m) => m.name.toLowerCase().trim())
+  );
 
   for (const result of sorted) {
     const dateStr = result.test_date ?? result.created_at.split("T")[0];
@@ -179,7 +205,36 @@ function buildTrendData(results: BloodworkResult[]): Record<string, MarkerTrendD
     };
   }
 
-  return trendData;
+  // Build unretested markers: appeared in older tests, not in the latest
+  const unretested: UnretestedMarker[] = [];
+  for (const [key, points] of Object.entries(markerMap)) {
+    if (latestMarkerKeys.has(key)) continue;
+    const lastPoint = points[points.length - 1];
+    // Get original marker value from the result that last had it
+    let origValue = String(lastPoint.value);
+    // Try to find original string value from results
+    for (let i = sorted.length - 1; i >= 0; i--) {
+      const found = sorted[i].markers.find((m) => m.name.toLowerCase().trim() === key);
+      if (found) { origValue = found.value; break; }
+    }
+    const mockMarker: Marker = {
+      name: markerMeta[key].name,
+      value: origValue,
+      unit: markerMeta[key].unit,
+      reference_range: "",
+      status: lastPoint.status,
+    };
+    unretested.push({
+      name: markerMeta[key].name,
+      unit: markerMeta[key].unit,
+      value: origValue,
+      status: lastPoint.status,
+      lastSeen: lastPoint.dateLabel,
+      category: categorize(mockMarker),
+    });
+  }
+
+  return { trendData, unretested };
 }
 
 // ─── Trend Chart Component ─────────────────────────────────────────────────────
@@ -284,19 +339,28 @@ function MarkerTrendCard({ data }: { data: MarkerTrendData }) {
   );
 }
 
-// ─── Trend Section (grouped by category) ──────────────────────────────────────
+// ─── Trend Section (grouped by category + unretested) ─────────────────────────
 
 function TrendSection({ results }: { results: BloodworkResult[] }) {
-  const trendData = buildTrendData(results);
+  const { trendData, unretested } = buildTrendData(results);
   const markers = Object.values(trendData);
 
-  if (markers.length === 0) return null;
+  const improving = markers.filter((m) => m.trend === "improving").length;
+  const worsening = markers.filter((m) => m.trend === "worsening").length;
+  const stable = markers.filter((m) => m.trend === "stable").length;
 
-  // Group by category
+  // Group trended markers by category
   const byCategory: Record<string, MarkerTrendData[]> = {};
   for (const m of markers) {
     if (!byCategory[m.category]) byCategory[m.category] = [];
     byCategory[m.category].push(m);
+  }
+
+  // Group unretested by category
+  const unretestedByCategory: Record<string, UnretestedMarker[]> = {};
+  for (const m of unretested) {
+    if (!unretestedByCategory[m.category]) unretestedByCategory[m.category] = [];
+    unretestedByCategory[m.category].push(m);
   }
 
   const order = [...Object.keys(CATEGORIES), "Other"];
@@ -304,14 +368,37 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          Trends Across Uploads
-        </h2>
-        <span className="text-xs text-neutral-400 bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 rounded-full">
-          {markers.length} marker{markers.length !== 1 ? "s" : ""} tracked
-        </span>
-      </div>
+      {/* Summary bar */}
+      {markers.length > 0 && (
+        <div className="flex flex-wrap gap-3 text-sm">
+          {improving > 0 && (
+            <span className="px-3 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 font-medium">
+              {improving} improved
+            </span>
+          )}
+          {worsening > 0 && (
+            <span className="px-3 py-1 rounded-full bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 font-medium">
+              {worsening} declined
+            </span>
+          )}
+          {stable > 0 && (
+            <span className="px-3 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 font-medium">
+              {stable} stable
+            </span>
+          )}
+          {unretested.length > 0 && (
+            <span className="px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-medium">
+              {unretested.length} not retested
+            </span>
+          )}
+        </div>
+      )}
+
+      {markers.length === 0 && unretested.length === 0 && (
+        <p className="text-sm text-neutral-400">No markers appear in multiple uploads yet.</p>
+      )}
+
+      {/* Trended markers by category */}
       {sortedCats.map((cat) => (
         <div key={cat}>
           <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400 mb-3">
@@ -324,6 +411,55 @@ function TrendSection({ results }: { results: BloodworkResult[] }) {
           </div>
         </div>
       ))}
+
+      {/* Not-yet-retested section */}
+      {unretested.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
+              Not yet retested
+            </h3>
+            <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+              {unretested.length} marker{unretested.length !== 1 ? "s" : ""}
+            </span>
+          </div>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+            These markers appeared in an older test but are not in your most recent upload. Consider retesting.
+          </p>
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-neutral-50 dark:bg-neutral-900 border-b border-neutral-200 dark:border-neutral-800">
+                  <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">Marker</th>
+                  <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">Last Value</th>
+                  <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">Last Tested</th>
+                  <th className="text-left px-4 py-2 font-medium text-neutral-600 dark:text-neutral-400">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {unretested.map((m, i) => (
+                  <tr key={i} className="border-b border-neutral-100 dark:border-neutral-800 last:border-0">
+                    <td className="px-4 py-2.5 font-medium text-neutral-900 dark:text-neutral-100">
+                      {m.name}
+                    </td>
+                    <td className={`px-4 py-2.5 font-mono ${statusColor(m.status)}`}>
+                      {m.value}{m.unit ? <span className="text-neutral-400 text-xs ml-1">{m.unit}</span> : null}
+                    </td>
+                    <td className="px-4 py-2.5 text-neutral-500 dark:text-neutral-400 text-xs">
+                      {m.lastSeen}
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                        Not retested
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -396,12 +532,13 @@ function ConfirmPanel({
   saving,
 }: {
   pending: PendingResult;
-  onSave: (testDate: string | null, labName: string | null) => void;
+  onSave: (testDate: string | null, labName: string | null, referenceSource: "lab" | "function_health") => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
   const [testDate, setTestDate] = useState(pending.test_date ?? "");
   const [labName, setLabName] = useState(pending.lab_name ?? "");
+  const [referenceSource, setReferenceSource] = useState<"lab" | "function_health">("lab");
   const dateFoundByAI = !!pending.test_date;
 
   const markerCount = pending.markers.length;
@@ -464,15 +601,65 @@ function ConfirmPanel({
           type="text"
           value={labName}
           onChange={(e) => setLabName(e.target.value)}
-          placeholder="e.g. LabCorp, Quest Diagnostics"
+          placeholder="e.g. LabCorp, Quest Diagnostics, Function Health"
           className="w-full max-w-sm px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
         />
+      </div>
+
+      {/* Reference range selector */}
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
+          Which reference ranges should we use?
+        </label>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <button
+            type="button"
+            onClick={() => setReferenceSource("lab")}
+            className={`flex-1 px-4 py-3 rounded-xl border text-left transition-all ${
+              referenceSource === "lab"
+                ? "border-neutral-900 dark:border-neutral-100 bg-neutral-50 dark:bg-neutral-800"
+                : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+            }`}
+          >
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Standard lab ranges</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Disease-prevention thresholds used by most labs
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setReferenceSource("function_health")}
+            className={`flex-1 px-4 py-3 rounded-xl border text-left transition-all ${
+              referenceSource === "function_health"
+                ? "border-violet-500 bg-violet-50/50 dark:bg-violet-900/10"
+                : "border-neutral-200 dark:border-neutral-700 hover:border-neutral-300 dark:hover:border-neutral-600"
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Function Health optimal</p>
+              {referenceSource === "function_health" && (
+                <span className="text-xs px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400">selected</span>
+              )}
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Stricter performance ranges — not just disease prevention
+            </p>
+          </button>
+        </div>
+        {referenceSource === "function_health" && (
+          <div className="rounded-lg bg-violet-50 dark:bg-violet-900/10 border border-violet-200 dark:border-violet-800 px-4 py-3 text-xs text-violet-800 dark:text-violet-300 space-y-1">
+            <p className="font-medium mb-1">Function Health optimal ranges (examples):</p>
+            <p>Vitamin D: 60–80 ng/mL · Ferritin: 50–150 ng/mL · TSH: 0.5–2.0 mIU/L</p>
+            <p>Fasting glucose: 70–85 mg/dL · HbA1c: &lt;5.4% · LDL: &lt;100 mg/dL</p>
+            <p>Homocysteine: &lt;8 μmol/L · hsCRP: &lt;0.5 mg/L · Testosterone (M): 600–900 ng/dL</p>
+          </div>
+        )}
       </div>
 
       {/* Actions */}
       <div className="flex gap-2 pt-1">
         <button
-          onClick={() => onSave(testDate || null, labName.trim() || null)}
+          onClick={() => onSave(testDate || null, labName.trim() || null, referenceSource)}
           disabled={saving}
           className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
@@ -547,8 +734,12 @@ export default function BloodworkPage() {
     }
   }
 
-  // Step 2: User confirms date → save to DB
-  async function handleSave(testDate: string | null, labName: string | null) {
+  // Step 2: User confirms date + reference source → save to DB
+  async function handleSave(
+    testDate: string | null,
+    labName: string | null,
+    referenceSource: "lab" | "function_health"
+  ) {
     if (!pending) return;
     setSaving(true);
     setSaveError(null);
@@ -562,6 +753,7 @@ export default function BloodworkPage() {
           test_date: testDate,
           lab_name: labName,
           file_path: pending.file_path,
+          reference_source: referenceSource,
         }),
       });
       const data = await res.json();
@@ -586,6 +778,9 @@ export default function BloodworkPage() {
   }
 
   const hasTrends = results.length >= 2;
+
+  // Newest result = "Current" (results are ordered newest first from API)
+  const newestResultId = results[0]?.id;
 
   return (
     <div className="max-w-2xl space-y-6">
@@ -701,17 +896,22 @@ export default function BloodworkPage() {
                     <button
                       key={r.id}
                       onClick={() => setSelected(r)}
-                      className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                      className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-full border transition-colors ${
                         selected?.id === r.id
                           ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-transparent"
                           : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400"
                       }`}
                     >
-                      {r.test_date
-                        ? new Date(r.test_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-                        : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                      {r.lab_name ? ` — ${r.lab_name}` : ""}
-                      {!r.test_date && <span className="ml-1 opacity-60">(no test date)</span>}
+                      {r.id === newestResultId && (
+                        <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${selected?.id === r.id ? "bg-white dark:bg-neutral-900" : "bg-emerald-500"}`} />
+                      )}
+                      {r.id === newestResultId ? "Current" : (
+                        r.test_date
+                          ? new Date(r.test_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                          : new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                      )}
+                      {r.lab_name && r.id !== newestResultId ? ` — ${r.lab_name}` : ""}
+                      {!r.test_date && r.id !== newestResultId && <span className="ml-1 opacity-60">(no test date)</span>}
                     </button>
                   ))}
                 </div>
@@ -719,24 +919,41 @@ export default function BloodworkPage() {
 
               {selected && (
                 <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5">
-                  <div className="flex items-baseline justify-between mb-4">
+                  <div className="flex items-start justify-between mb-4 gap-3">
                     <div>
-                      <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-                        {selected.lab_name || "Lab Results"}
-                      </h2>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                          {selected.lab_name || "Lab Results"}
+                        </h2>
+                        {selected.id === newestResultId && (
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                            Current
+                          </span>
+                        )}
+                        {refSourceBadge(selected.reference_source ?? "lab")}
+                      </div>
                       {selected.test_date ? (
-                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-                          {new Date(selected.test_date).toLocaleDateString("en-US", {
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+                          {new Date(selected.test_date + "T12:00:00").toLocaleDateString("en-US", {
                             month: "long",
                             day: "numeric",
                             year: "numeric",
                           })}
+                          {results.length > 1 && selected.id !== newestResultId && (
+                            <span className="ml-2 text-neutral-400">
+                              — compared to your{" "}
+                              {results[0].test_date
+                                ? new Date(results[0].test_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", year: "numeric" })
+                                : "latest"}{" "}
+                              baseline
+                            </span>
+                          )}
                         </p>
                       ) : (
-                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">No test date recorded</p>
+                        <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">No test date recorded</p>
                       )}
                     </div>
-                    <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                    <div className="flex gap-3 text-xs text-neutral-500 dark:text-neutral-400 shrink-0">
                       <span><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />Normal</span>
                       <span><span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1" />Low</span>
                       <span><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1" />High</span>
