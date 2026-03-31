@@ -64,20 +64,43 @@ function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
 
 // ─── Unit Normalization & Conversion ──────────────────────────────────────────
 
-/** Normalize unit strings to lowercase canonical form. */
+/** Normalize unit strings to a lowercase canonical form.
+ *  Equivalent units (different names, same quantity) map to the same string:
+ *  mEq/L = mmol/L (monovalent ions), mcg/dL = ug/dL, etc. */
 function normalizeUnit(unit: string): string {
   const u = unit.toLowerCase().trim().replace(/\s+/g, "");
+  // Percent
   if (u === "percent" || u === "pct") return "%";
+  // ng/dL family
   if (u === "ng/dl" || u === "ngdl") return "ng/dl";
+  // ng/mL family
   if (u === "ng/ml" || u === "ngml") return "ng/ml";
+  // nmol/L family
   if (u === "nmol/l" || u === "nmoll") return "nmol/l";
+  // pmol/L family
+  if (u === "pmol/l" || u === "pmoll") return "pmol/l";
+  // mg/dL family
   if (u === "mg/dl" || u === "mgdl") return "mg/dl";
-  if (u === "mmol/l" || u === "mmoll") return "mmol/l";
+  // mmol/L family — mEq/L is numerically equal to mmol/L for monovalent ions
+  if (u === "mmol/l" || u === "mmoll" || u === "meq/l" || u === "meql") return "mmol/l";
+  // mmol/mol (HbA1c IFCC)
   if (u === "mmol/mol") return "mmol/mol";
+  // mg/L family
   if (u === "mg/l" || u === "mgl") return "mg/l";
+  // μmol/L family
   if (u === "μmol/l" || u === "umol/l" || u === "µmol/l") return "umol/l";
+  // mIU/L family
   if (u === "miu/l" || u === "miu/ml" || u === "mlu/ml") return "miu/l";
+  // IU/L family
   if (u === "iu/l" || u === "u/l") return "iu/l";
+  // pg/mL family
+  if (u === "pg/ml" || u === "pgml") return "pg/ml";
+  // μg/dL family — mcg/dL is the same as ug/dL
+  if (u === "ug/dl" || u === "ugdl" || u === "mcg/dl" || u === "mcgdl" || u === "µg/dl") return "ug/dl";
+  // g/dL family
+  if (u === "g/dl" || u === "gdl") return "g/dl";
+  // g/L family
+  if (u === "g/l" || u === "gl") return "g/l";
   return u;
 }
 
