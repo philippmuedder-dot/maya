@@ -20,6 +20,7 @@ export default function DailyTasks() {
   const [tasks, setTasks] = useState<DailyTask[]>([]);
   const [staleTasks, setStaleTasks] = useState<StaleTask[]>([]);
   const [loading, setLoading] = useState(true);
+  const [gutResponses, setGutResponses] = useState<Record<string, "yes" | "no">>({});
 
   const fetchTasks = useCallback(async () => {
     try {
@@ -39,6 +40,27 @@ export default function DailyTasks() {
   useEffect(() => {
     fetchTasks();
   }, [fetchTasks]);
+
+  function toggleGut(id: string, response: "yes" | "no") {
+    setGutResponses((prev) => ({
+      ...prev,
+      [id]: prev[id] === response ? undefined as unknown as "yes" | "no" : response,
+    }));
+  }
+
+  async function handleGutNo(id: string) {
+    setGutResponses((prev) => ({ ...prev, [id]: "no" }));
+    setStaleTasks((prev) => prev.filter((t) => t.id !== id));
+    try {
+      await fetch("/api/daily-tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, completed: true }),
+      });
+    } catch (err) {
+      console.error("Failed to dismiss gut-no task:", err);
+    }
+  }
 
   async function markStaleDone(id: string) {
     setStaleTasks((prev) => prev.filter((t) => t.id !== id));
@@ -116,23 +138,58 @@ export default function DailyTasks() {
           {staleTasks.map((st) => (
             <div
               key={st.id}
-              className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+              className="p-3 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 space-y-2.5"
             >
-              <p className="text-sm text-amber-800 dark:text-amber-200 mb-2">
-                You&apos;ve been avoiding{" "}
-                <span className="font-semibold">&ldquo;{st.task}&rdquo;</span>{" "}
-                for {daysSince(st.date)} days — is this a gut no?
+              {/* Row 1: task name + days */}
+              <div>
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  &ldquo;{st.task}&rdquo;
+                </p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  Avoiding for {daysSince(st.date)} days
+                </p>
+              </div>
+
+              {/* Row 2: gut label */}
+              <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+                Is this a gut no?
               </p>
-              <div className="flex gap-2">
+
+              {/* Row 3: gut response buttons */}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => toggleGut(st.id, "yes")}
+                  className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                    gutResponses[st.id] === "yes"
+                      ? "bg-emerald-500 text-white"
+                      : "bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 hover:border-emerald-400"
+                  }`}
+                >
+                  👍 Gut Yes
+                </button>
+                <button
+                  onClick={() => handleGutNo(st.id)}
+                  className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                    gutResponses[st.id] === "no"
+                      ? "bg-red-500 text-white"
+                      : "bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700 hover:border-red-400"
+                  }`}
+                >
+                  👎 Gut No
+                </button>
+              </div>
+
+              {/* Row 4: action buttons */}
+              <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => markStaleDone(st.id)}
-                  className="text-xs px-2.5 py-1 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
+                  className="py-2 rounded-lg text-sm font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-900/60 transition-colors"
                 >
                   ✓ Done
                 </button>
                 <button
                   onClick={() => snoozeTask(st.id, "stale")}
-                  className="text-xs px-2.5 py-1 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                  className="py-2 rounded-lg text-sm font-medium bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
                 >
                   Not today
                 </button>
