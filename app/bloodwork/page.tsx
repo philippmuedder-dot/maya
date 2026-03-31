@@ -46,13 +46,17 @@ interface StoredRange {
 type RefSource = "lab" | "function_health";
 type EffectiveStatus = "normal" | "low" | "high" | "suboptimal";
 
-/** Sort bloodwork results newest-first by test_date; records without a test_date go last. */
+/** Sort bloodwork results newest-first by test_date (ISO strings compare correctly as strings).
+ *  Records without a test_date always go last. */
 function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
   return [...results].sort((a, b) => {
     if (!a.test_date && !b.test_date) return 0;
-    if (!a.test_date) return 1;   // nulls last
-    if (!b.test_date) return -1;
-    return b.test_date.localeCompare(a.test_date); // descending
+    if (!a.test_date) return 1;  // null → last
+    if (!b.test_date) return -1; // null → last
+    // ISO date strings: lexicographic order = chronological order
+    if (b.test_date > a.test_date) return 1;  // b is newer → b first
+    if (b.test_date < a.test_date) return -1;
+    return 0;
   });
 }
 

@@ -15,7 +15,7 @@ export async function GET() {
     .from("bloodwork_results")
     .select("*")
     .eq("user_id", session.user.email)
-    .order("test_date", { ascending: false, nullsFirst: false });
+    .order("test_date", { ascending: false });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
