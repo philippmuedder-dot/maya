@@ -301,6 +301,15 @@ function parseNumericValue(val: string): number | null {
   return isNaN(n) ? null : n;
 }
 
+/** Format an optimal range as "< X", "> X", or "min–max".
+ *  Handles single-bound ranges like PSA (< 4) or GFR (> 60). */
+function formatOptimalRange(min: number | null | undefined, max: number | null | undefined): string {
+  if (min != null && max != null) return `${min}–${max}`;
+  if (min != null) return `> ${min}`;
+  if (max != null) return `< ${max}`;
+  return "–";
+}
+
 function statusColor(status: EffectiveStatus) {
   if (status === "high") return "text-red-600 dark:text-red-400";
   if (status === "low") return "text-yellow-600 dark:text-yellow-400";
@@ -686,19 +695,15 @@ function MarkerTable({
                   let rangeUnit: string | null = null;
                   if (refSource === "function_health") {
                     if (stored && (stored.optimal_min != null || stored.optimal_max != null)) {
-                      const min = stored.optimal_min != null ? stored.optimal_min : "–";
-                      const max = stored.optimal_max != null ? stored.optimal_max : "–";
                       rangeUnit = stored.unit ?? null;
-                      optimalRangeStr = `${min}–${max}${stored.unit ? ` ${stored.unit}` : ""}`;
+                      optimalRangeStr = formatOptimalRange(stored.optimal_min, stored.optimal_max) + (stored.unit ? ` ${stored.unit}` : "");
                       rangeLabel = stored.source || "from your lab";
                     } else {
                       const nameLower = m.name.toLowerCase();
                       for (const [fhKey, range] of FH_OPTIMAL) {
                         if (nameLower.includes(fhKey)) {
-                          const min = range.min != null ? range.min : "–";
-                          const max = range.max != null ? range.max : "–";
                           rangeUnit = range.unit;
-                          optimalRangeStr = `${min}–${max} ${range.unit}`;
+                          optimalRangeStr = `${formatOptimalRange(range.min, range.max)} ${range.unit}`;
                           rangeLabel = "FH default";
                           break;
                         }
@@ -963,8 +968,8 @@ function RangesTab({
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ooptimal_min: editValues.optimal_min != null && String(editValues.optimal_min) !== "" ? Number(editValues.optimal_min) : null,
-optimal_max: editValues.optimal_max != null && String(editValues.optimal_max) !== "" ? Number(editValues.optimal_max) : null,
+          optimal_min: editValues.optimal_min != null && String(editValues.optimal_min) !== "" ? Number(editValues.optimal_min) : null,
+          optimal_max: editValues.optimal_max != null && String(editValues.optimal_max) !== "" ? Number(editValues.optimal_max) : null,
           unit: editValues.unit || null,
           source: editValues.source || null,
         }),

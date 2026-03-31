@@ -30,7 +30,14 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 
 Rules:
 - test_date must be the actual date printed on the lab report. If not visible, return null — never guess.
-- reference_min and reference_max: extract the numeric lower and upper bounds from the printed reference range. Return null for a bound that doesn't exist (e.g. for ">60" reference_min=60, reference_max=null).
+- reference_min and reference_max: extract the numeric bounds from the printed reference range:
+  - "30–100"   → reference_min: 30,  reference_max: 100
+  - "< 4"      → reference_min: null, reference_max: 4
+  - "< 200"    → reference_min: null, reference_max: 200
+  - "> 0.5"    → reference_min: 0.5, reference_max: null
+  - ">= 60"    → reference_min: 60,  reference_max: null
+  - "0.0–4.0"  → reference_min: 0,   reference_max: 4
+  When a bound does not exist, return null for that field.
 - status: use "optimal" if value is within the printed reference range, "low" if below, "high" if above. Use "suboptimal" only if the document explicitly marks it as borderline or sub-optimal.`;
 
 function makeRemainingPrompt(alreadyExtracted: string[]): string {
@@ -57,7 +64,14 @@ Return ONLY valid JSON (no markdown, no explanation):
 }
 
 Rules:
-- reference_min/reference_max: extract numeric bounds from the printed reference range
+- reference_min and reference_max: extract the numeric bounds from the printed reference range:
+  - "30–100"   → reference_min: 30,  reference_max: 100
+  - "< 4"      → reference_min: null, reference_max: 4
+  - "< 200"    → reference_min: null, reference_max: 200
+  - "> 0.5"    → reference_min: 0.5, reference_max: null
+  - ">= 60"    → reference_min: 60,  reference_max: null
+  - "0.0–4.0"  → reference_min: 0,   reference_max: 4
+  When a bound does not exist, return null for that field.
 - status: "optimal" if within range, "low" if below, "high" if above`;
 }
 
