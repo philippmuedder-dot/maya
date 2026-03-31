@@ -67,7 +67,6 @@ function sortByTestDate(results: BloodworkResult[]): BloodworkResult[] {
 /** Normalize unit strings to a lowercase canonical form.
  *  Equivalent units (different names, same quantity) map to the same string:
  *  mEq/L = mmol/L (monovalent ions), mcg/dL = ug/dL, etc. */
-'miu/l': ['miu/l', 'mIU/L', 'mu/l', 'mU/L', 'uIU/mL', 'uiu/ml'],
 function normalizeUnit(unit: string): string {
   const u = unit.toLowerCase().trim().replace(/\s+/g, "");
   // Percent
@@ -90,8 +89,9 @@ function normalizeUnit(unit: string): string {
   if (u === "mg/l" || u === "mgl") return "mg/l";
   // μmol/L family
   if (u === "μmol/l" || u === "umol/l" || u === "µmol/l") return "umol/l";
-  // mIU/L family
-  if (u === "miu/l" || u === "miu/ml" || u === "mlu/ml") return "miu/l";
+  // mIU/L family (TSH) — mU/L = mIU/L = uIU/mL
+  if (u === "miu/l" || u === "mu/l" || u === "uiu/ml" ||
+      u === "miu/ml" || u === "mu/ml") return "miu/l";
   // IU/L family
   if (u === "iu/l" || u === "u/l") return "iu/l";
   // pg/mL family
