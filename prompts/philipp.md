@@ -3,7 +3,7 @@
 ## Identity
 - **Full name:** Philipp Muedder
 - **Born:** October 17, 1986 in Zons, Germany
-- **Age:** 38
+- **Age:** 39 (born October 17, 1986)
 - **Preferred name:** Philipp
 - **Primary timezone:** Europe/Berlin (CET/CEST)
 - **Human Design:** 3/5 Generator, Sacral Authority, Right Angle Cross of Maya 3 (32/42)
