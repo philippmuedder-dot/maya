@@ -1170,7 +1170,8 @@ export default function SupplementsPage() {
       const res = await fetch("/api/supplements/parse", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Parse failed.");
-      setParsedItems(data.supplements as ParsedSupplement[]);
+      // Image parse returns { product_name, brand, timing_suggestion, ingredients }
+      setParsedItems((data.ingredients ?? data.supplements ?? []) as ParsedSupplement[]);
       setParsedProductName(data.product_name ?? null);
       setParsedTimingSuggestion(data.timing_suggestion ?? null);
     } catch (err) {
