@@ -658,6 +658,7 @@ function ParseReviewPanel({
   parsed,
   productName: initialProductName,
   timingSuggestion,
+  isImageParse,
   onConfirm,
   onDiscard,
   saving,
@@ -665,12 +666,14 @@ function ParseReviewPanel({
   parsed: ParsedSupplement[];
   productName?: string | null;
   timingSuggestion?: string | null;
+  isImageParse?: boolean;
   onConfirm: (items: ParsedSupplement[]) => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
-  const isProductMode = !!initialProductName;
+  const isProductMode = isImageParse || !!initialProductName;
   const [productName, setProductName] = useState(initialProductName ?? "");
+  const [productNameError, setProductNameError] = useState(false);
   const [bulkTiming, setBulkTiming] = useState<string>(timingSuggestion ?? "");
   const [items, setItems] = useState<ParsedSupplement[]>(parsed);
   const [ingredientsExpanded, setIngredientsExpanded] = useState(false);
@@ -693,6 +696,10 @@ function ParseReviewPanel({
   }
 
   function handleConfirm() {
+    if (isProductMode && !productName.trim()) {
+      setProductNameError(true);
+      return;
+    }
     const toSave = isProductMode
       ? items.map((item) => ({ ...item, product_name: productName.trim() || null }))
       : items;
@@ -710,14 +717,22 @@ function ParseReviewPanel({
           </h3>
           <div>
             <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
-              Product name
+              What is this product called? <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
               value={productName}
-              onChange={(e) => setProductName(e.target.value)}
-              className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+              onChange={(e) => { setProductName(e.target.value); setProductNameError(false); }}
+              placeholder="e.g. Sunday Naturals All in One"
+              className={`w-full px-3 py-2 text-sm rounded-lg border bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 placeholder-neutral-400 focus:outline-none focus:ring-2 transition-colors ${
+                productNameError
+                  ? "border-red-400 dark:border-red-500 focus:ring-red-400"
+                  : "border-neutral-200 dark:border-neutral-700 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+              }`}
             />
+            {productNameError && (
+              <p className="text-xs text-red-500 mt-1">Product name is required before saving.</p>
+            )}
           </div>
         </div>
 
@@ -953,6 +968,7 @@ export default function SupplementsPage() {
   const [parsedItems, setParsedItems] = useState<ParsedSupplement[] | null>(null);
   const [parsedProductName, setParsedProductName] = useState<string | null>(null);
   const [parsedTimingSuggestion, setParsedTimingSuggestion] = useState<string | null>(null);
+  const [isImageParse, setIsImageParse] = useState(false);
   const [parseSaving, setParseSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1148,6 +1164,7 @@ export default function SupplementsPage() {
       setParsedItems(data.supplements as ParsedSupplement[]);
       setParsedProductName(null);
       setParsedTimingSuggestion(null);
+      setIsImageParse(false);
       setParseText("");
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Failed to parse.");
@@ -1174,6 +1191,7 @@ export default function SupplementsPage() {
       setParsedItems((data.ingredients ?? data.supplements ?? []) as ParsedSupplement[]);
       setParsedProductName(data.product_name ?? null);
       setParsedTimingSuggestion(data.timing_suggestion ?? null);
+      setIsImageParse(true);
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Failed to parse.");
     } finally {
@@ -1415,11 +1433,13 @@ export default function SupplementsPage() {
           parsed={parsedItems}
           productName={parsedProductName}
           timingSuggestion={parsedTimingSuggestion}
+          isImageParse={isImageParse}
           onConfirm={confirmParsed}
           onDiscard={() => {
             setParsedItems(null);
             setParsedProductName(null);
             setParsedTimingSuggestion(null);
+            setIsImageParse(false);
             setShowUpload(false);
           }}
           saving={parseSaving}
