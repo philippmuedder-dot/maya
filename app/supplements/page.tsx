@@ -656,21 +656,25 @@ function SupplementForm({
 
 function ParseReviewPanel({
   parsed,
+  productName: initialProductName,
+  timingSuggestion,
   onConfirm,
   onDiscard,
   saving,
 }: {
   parsed: ParsedSupplement[];
+  productName?: string | null;
+  timingSuggestion?: string | null;
   onConfirm: (items: ParsedSupplement[]) => void;
   onDiscard: () => void;
   saving: boolean;
 }) {
-  // Bulk timing selection — applied to all items that don't have their own override
-  const [bulkTiming, setBulkTiming] = useState<string>("");
-  // Per-item list — each item can individually override the bulk timing
+  const isProductMode = !!initialProductName;
+  const [productName, setProductName] = useState(initialProductName ?? "");
+  const [bulkTiming, setBulkTiming] = useState<string>(timingSuggestion ?? "");
   const [items, setItems] = useState<ParsedSupplement[]>(parsed);
+  const [ingredientsExpanded, setIngredientsExpanded] = useState(false);
 
-  // When bulk timing changes, apply it to every item
   function applyBulkTiming(t: string) {
     setBulkTiming(t);
     setItems((prev) => prev.map((item) => ({ ...item, timing: t as ParsedSupplement["timing"] })));
@@ -688,6 +692,128 @@ function ParseReviewPanel({
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
+  function handleConfirm() {
+    const toSave = isProductMode
+      ? items.map((item) => ({ ...item, product_name: productName.trim() || null }))
+      : items;
+    onConfirm(toSave);
+  }
+
+  // ── Product mode (image parse) ──
+  if (isProductMode) {
+    return (
+      <div className="rounded-xl border border-blue-200 dark:border-blue-800 p-5 bg-blue-50/50 dark:bg-blue-900/10 space-y-5">
+        {/* Header + product name */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+            Review Parsed Product
+          </h3>
+          <div>
+            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">
+              Product name
+            </label>
+            <input
+              type="text"
+              value={productName}
+              onChange={(e) => setProductName(e.target.value)}
+              className="w-full px-3 py-2 text-sm rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 focus:outline-none focus:ring-2 focus:ring-neutral-900 dark:focus:ring-neutral-100"
+            />
+          </div>
+        </div>
+
+        {/* Timing (single selector, applies to all) */}
+        <div className="rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 px-4 py-4 space-y-3">
+          <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+            When do you take this product?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {TIMINGS.map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => applyBulkTiming(bulkTiming === t ? "" : t)}
+                className={`text-xs px-4 py-2 rounded-full border font-medium transition-colors ${
+                  bulkTiming === t
+                    ? "bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 border-transparent"
+                    : "border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400"
+                }`}
+              >
+                {TIMING_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Ingredients — collapsed by default */}
+        <div className="rounded-lg bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setIngredientsExpanded((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 text-left"
+          >
+            <span className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              {items.length} ingredient{items.length !== 1 ? "s" : ""} found
+            </span>
+            <svg
+              className={`h-4 w-4 text-neutral-400 transition-transform ${ingredientsExpanded ? "rotate-180" : ""}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          {ingredientsExpanded && (
+            <div className="border-t border-neutral-100 dark:border-neutral-800 divide-y divide-neutral-100 dark:divide-neutral-800">
+              {items.map((item, i) => (
+                <div key={i} className="flex items-center gap-3 px-4 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm text-neutral-800 dark:text-neutral-200">{item.name}</span>
+                      {item.dose && (
+                        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+                          {item.dose}{item.unit || ""}
+                        </span>
+                      )}
+                    </div>
+                    {item.purpose && (
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{item.purpose}</p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => remove(i)}
+                    className="shrink-0 p-1 text-neutral-400 hover:text-red-600 dark:hover:text-red-400 transition-colors"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={handleConfirm}
+            disabled={saving || items.length === 0}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-neutral-900 dark:bg-neutral-100 text-white dark:text-neutral-900 hover:bg-neutral-700 dark:hover:bg-neutral-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {saving ? "Saving…" : `Save all ${items.length} ingredient${items.length !== 1 ? "s" : ""}`}
+          </button>
+          <button
+            onClick={onDiscard}
+            disabled={saving}
+            className="px-4 py-2 rounded-lg text-sm font-medium border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:border-neutral-400 transition-colors"
+          >
+            Discard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Text parse mode (existing UI) ──
   return (
     <div className="rounded-xl border border-blue-200 dark:border-blue-800 p-5 bg-blue-50/50 dark:bg-blue-900/10 space-y-5">
       {/* Header */}
@@ -825,6 +951,8 @@ export default function SupplementsPage() {
   const [parsing, setParsing] = useState(false);
   const [parseError, setParseError] = useState<string | null>(null);
   const [parsedItems, setParsedItems] = useState<ParsedSupplement[] | null>(null);
+  const [parsedProductName, setParsedProductName] = useState<string | null>(null);
+  const [parsedTimingSuggestion, setParsedTimingSuggestion] = useState<string | null>(null);
   const [parseSaving, setParseSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -1018,6 +1146,8 @@ export default function SupplementsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Parse failed.");
       setParsedItems(data.supplements as ParsedSupplement[]);
+      setParsedProductName(null);
+      setParsedTimingSuggestion(null);
       setParseText("");
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Failed to parse.");
@@ -1041,6 +1171,8 @@ export default function SupplementsPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Parse failed.");
       setParsedItems(data.supplements as ParsedSupplement[]);
+      setParsedProductName(data.product_name ?? null);
+      setParsedTimingSuggestion(data.timing_suggestion ?? null);
     } catch (err) {
       setParseError(err instanceof Error ? err.message : "Failed to parse.");
     } finally {
@@ -1280,9 +1412,13 @@ export default function SupplementsPage() {
       {parsedItems && (
         <ParseReviewPanel
           parsed={parsedItems}
+          productName={parsedProductName}
+          timingSuggestion={parsedTimingSuggestion}
           onConfirm={confirmParsed}
           onDiscard={() => {
             setParsedItems(null);
+            setParsedProductName(null);
+            setParsedTimingSuggestion(null);
             setShowUpload(false);
           }}
           saving={parseSaving}

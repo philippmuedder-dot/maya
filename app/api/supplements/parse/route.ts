@@ -8,7 +8,7 @@ export const maxDuration = 30;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-const PARSE_PROMPT = `Extract all supplements from this input.
+const TEXT_PARSE_PROMPT = `Extract all supplements from this input.
 Return ONLY valid JSON array (no markdown, no explanation):
 [
   {"name": "string", "dose": number_or_null, "unit": "mg"|"g"|"mcg"|"IU"|"ml"|"other"|null, "timing": "morning"|"afternoon"|"evening"|"night"|null, "purpose": "string or null"}
@@ -21,6 +21,27 @@ Rules:
 - timing: infer from context if mentioned (morning, afternoon, evening, night) — null if not specified
 - purpose: brief purpose/benefit if mentioned, otherwise null
 - Include every supplement mentioned, even if dose is unknown`;
+
+const IMAGE_PARSE_PROMPT = `Extract the product name and all ingredients from this supplement label.
+Return ONLY valid JSON (no markdown, no explanation):
+{
+  "product_name": "string",
+  "brand": "string or null",
+  "timing_suggestion": "morning"|"afternoon"|"evening"|"night"|null,
+  "ingredients": [
+    {"name": "string", "dose": number_or_null, "unit": "mg"|"g"|"mcg"|"IU"|"ml"|"other"|null, "purpose": "string or null"}
+  ]
+}
+
+Rules:
+- product_name: the full product name as shown on the label
+- brand: manufacturer/brand name if distinct from product name, otherwise null
+- timing_suggestion: infer from label instructions if mentioned, otherwise null
+- name: ingredient name, clean and properly capitalized
+- dose: numeric value only (e.g. 400 not "400mg")
+- unit: extract from dose string or null if unknown
+- purpose: brief purpose/benefit if mentioned on label, otherwise null
+- Include every ingredient listed, even if dose is unknown`;
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -46,7 +67,7 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: "user",
-            content: `${text}\n\n${PARSE_PROMPT}`,
+            content: `${text}\n\n${TEXT_PARSE_PROMPT}`,
           },
         ],
       });
@@ -85,14 +106,20 @@ export async function POST(req: NextRequest) {
         messages: [
           {
             role: "user",
-            content: [fileBlock, { type: "text", text: PARSE_PROMPT }],
+            content: [fileBlock, { type: "text", text: IMAGE_PARSE_PROMPT }],
           },
         ],
       });
 
       const raw = message.content[0].type === "text" ? message.content[0].text : "";
       const jsonStr = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
-      parsedSupplements = JSON.parse(jsonStr);
+      const parsed = JSON.parse(jsonStr);
+      return NextResponse.json({
+        product_name: parsed.product_name ?? null,
+        brand: parsed.brand ?? null,
+        timing_suggestion: parsed.timing_suggestion ?? null,
+        supplements: parsed.ingredients ?? [],
+      });
     }
   } catch (err) {
     console.error("[supplements/parse] error:", err);
