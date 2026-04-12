@@ -40,6 +40,7 @@ interface SleepData {
   supplements: Supplement[];
   sleep_log: SleepLogEntry[];
   sleep_debt: number | null;
+  whoop_connected: boolean;
 }
 
 function durationColor(hrs: number): string {
@@ -228,6 +229,10 @@ export default function SleepPage() {
                   : "High sleep debt — recovery should be your top priority"}
             </p>
           </div>
+        ) : data.whoop_connected ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            Sleep debt data not yet available — check back after your next sync
+          </p>
         ) : (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             Connect Whoop in Settings to track sleep debt
@@ -338,6 +343,10 @@ export default function SleepPage() {
               </tbody>
             </table>
           </div>
+        ) : data.whoop_connected ? (
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            No sleep records found — data will appear after your first tracked sleep
+          </p>
         ) : (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             Connect Whoop in Settings to see sleep data

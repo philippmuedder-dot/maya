@@ -280,6 +280,15 @@ export async function GET() {
     } catch (err) {
       console.error("[sleep] whoop_daily_data sleep_debt fetch error:", err);
     }
+
+    // Fallback: compute from sleep log when DB has no stored debt value
+    if (sleepDebt === null && sleepLog.length > 0) {
+      const debtMins = sleepLog.reduce((acc, night) => {
+        const shortfall = sleepNeedHrs - night.duration_hrs;
+        return acc + (shortfall > 0 ? Math.round(shortfall * 60) : 0);
+      }, 0);
+      sleepDebt = Math.min(debtMins, 300);
+    }
   }
 
   return NextResponse.json({
@@ -288,5 +297,6 @@ export async function GET() {
     supplements,
     sleep_log: sleepLog,
     sleep_debt: sleepDebt,
+    whoop_connected: whoopConnected,
   });
 }
