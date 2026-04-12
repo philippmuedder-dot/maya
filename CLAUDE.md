@@ -43,11 +43,8 @@ work_calendar_tokens, chat_messages, sacral_responses
 - TypeScript error "session.user possibly undefined": use session.user?.email ?? ""
 - Build cache issues: rm -rf .next && npm run dev
 - Git hanging: use specific file paths, not git add .
+- Whoop null data ≠ not connected: always return `whoop_connected: boolean` from API routes separately from data. Whoop v2 doesn't always populate computed fields (e.g. `sleep_needed`); compute fallbacks from raw sleep log where needed. Never show "Connect Whoop" based on data being null alone.
 
 ## Current status
 All phases complete. Daily use mode.
 ```
-
-Save it, then:
-```
-git add CLAUDE.md && git commit -m "Add CLAUDE.md project context" && git push
