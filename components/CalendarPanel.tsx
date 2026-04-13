@@ -47,6 +47,7 @@ export function CalendarPanel() {
   const [data, setData] = useState<CalendarResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workNeedsReauth, setWorkNeedsReauth] = useState(false);
 
   useEffect(() => {
     fetch("/api/calendar")
@@ -56,6 +57,7 @@ export function CalendarPanel() {
           setError(d.error === "Unauthorized" ? "Sign in to see your calendar." : d.error);
         } else {
           setData(d);
+          if (d.work_calendar_needs_reauth) setWorkNeedsReauth(true);
         }
       })
       .catch(() => setError("Failed to load calendar."))
@@ -109,6 +111,21 @@ export function CalendarPanel() {
           {load.label} load · {todayEvents.length} event{todayEvents.length !== 1 ? "s" : ""}
         </span>
       </div>
+
+      {/* Work calendar reauth banner */}
+      {workNeedsReauth && (
+        <div className="px-5 py-2.5 flex items-center justify-between bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
+          <p className="text-xs text-amber-700 dark:text-amber-400">
+            Work calendar token expired — showing busy blocks only
+          </p>
+          <a
+            href="/api/work-calendar/auth"
+            className="text-xs font-medium text-amber-700 dark:text-amber-400 underline underline-offset-2 hover:text-amber-900 dark:hover:text-amber-200 whitespace-nowrap ml-3"
+          >
+            Reconnect →
+          </a>
+        </div>
+      )}
 
       {/* Today */}
       <div className="px-5 py-3">

@@ -81,12 +81,15 @@ export async function GET() {
           }
         }
 
-        const workEvents = await fetchWorkCalendarEvents(accessToken);
+        const workResult = await fetchWorkCalendarEvents(accessToken);
 
-        if (workEvents.length > 0) {
+        if (workResult.tokenInvalid) {
+          // Token is expired/revoked — signal UI to prompt reconnect
+          result.work_calendar_needs_reauth = true;
+        } else if (workResult.events.length > 0) {
           // Merge: replace busy blocks with full work events
           const personalOnly = result.events.filter((e) => !e.isBusy);
-          const merged = [...personalOnly, ...workEvents].sort((a, b) => {
+          const merged = [...personalOnly, ...workResult.events].sort((a, b) => {
             const aTime = a.start.dateTime ?? a.start.date ?? "";
             const bTime = b.start.dateTime ?? b.start.date ?? "";
             return aTime.localeCompare(bTime);

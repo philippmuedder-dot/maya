@@ -17,6 +17,7 @@ export interface CalendarResponse {
   events: CalendarEvent[];
   calendarName: string;
   error?: string;
+  work_calendar_needs_reauth?: boolean;
 }
 
 /** Calendar load classification based on event count + total duration */
@@ -146,7 +147,7 @@ export async function refreshWorkCalendarToken(refreshToken: string): Promise<{
 /** Fetch full work calendar events using a dedicated work access token */
 export async function fetchWorkCalendarEvents(
   workAccessToken: string
-): Promise<CalendarEvent[]> {
+): Promise<{ events: CalendarEvent[]; tokenInvalid?: boolean }> {
   const now = new Date();
   const in7Days = new Date(now.getTime() + 7 * 86_400_000);
 
@@ -170,14 +171,20 @@ export async function fetchWorkCalendarEvents(
         next: { revalidate: 300 },
       }
     );
-    if (!res.ok) return [];
+    if (!res.ok) {
+      const tokenInvalid = res.status === 401 || res.status === 403;
+      console.error(`[fetchWorkCalendarEvents] API error ${res.status}${tokenInvalid ? " — token invalid/expired" : ""}`);
+      return { events: [], tokenInvalid };
+    }
     const data = await res.json();
-    return (data.items ?? []).map((e: CalendarEvent) => ({
-      ...e,
-      isWork: true,
-    }));
+    return {
+      events: (data.items ?? []).map((e: CalendarEvent) => ({
+        ...e,
+        isWork: true,
+      })),
+    };
   } catch {
-    return [];
+    return { events: [] };
   }
 }
 
