@@ -1,24 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import DailyCheckinModal from "./DailyCheckinModal";
+import {
+  WhoopData,
+} from "@/lib/whoop";
+import {
+  CalendarResponse,
+  getTodayEvents,
+  classifyCalendarLoad,
+  formatEventTime,
+} from "@/lib/googleCalendar";
 
 const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
 
-type SacralChoice = "yes" | "no" | "unsure" | null;
+// ── Data shape returned by /api/briefing ──────────────────────────────────────
+interface Briefing {
+  day_type: "Focus" | "Maintenance" | "Recovery";
+  training: "Hard" | "Moderate" | "Recovery only";
+  avoid_heavy_decisions: boolean;
+  decision_reason: string;
+  top_priorities: string[];
+  supplement_focus: string;
+  what_to_pause: string;
+  phase: "Survival" | "Building" | "Thriving";
+  phase_message: string;
+  sacral_prompts: string[];
+}
 
-function SacralGroup({ question }: { question: string }) {
-  const [choice, setChoice] = useState<SacralChoice>(null);
+type SacralChoice = "yes" | "no" | "unsure";
+
+// ── Controlled Sacral group (persists yes/no to /api/sacral) ──────────────────
+function SacralGroup({
+  question,
+  value,
+  onChange,
+}: {
+  question: string;
+  value: SacralChoice | null;
+  onChange: (v: SacralChoice) => void;
+}) {
   const options: SacralChoice[] = ["yes", "no", "unsure"];
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
       <span style={{ fontSize: 15, color: "#dfe3df", lineHeight: 1.4 }}>{question}</span>
       <div style={{ display: "flex", gap: 7, flex: "none" }}>
         {options.map((opt) => {
-          const active = choice === opt;
+          const active = value === opt;
           return (
             <button
               key={opt}
-              onClick={() => setChoice(opt)}
+              onClick={() => onChange(opt)}
               style={{
                 ...MONO,
                 fontSize: 12,
@@ -40,11 +72,207 @@ function SacralGroup({ question }: { question: string }) {
   );
 }
 
+// ── Small helpers ─────────────────────────────────────────────────────────────
+function recoveryClause(score: number | null): string {
+  if (score == null) return "";
+  if (score >= 67) return "You're recovered and rising — ";
+  if (score >= 34) return "You're steady — ";
+  return "You're running low, be gentle — ";
+}
+
+function creativeFromPhase(phase: Briefing["phase"]): string {
+  if (phase === "Thriving") return "High";
+  if (phase === "Building") return "Returning";
+  return "Protect";
+}
+
+function moveText(training: Briefing["training"]): string {
+  if (training === "Hard")
+    return "Recovery supports a harder session today — push if it feels alive in the body.";
+  if (training === "Moderate")
+    return "Moderate today — a zone-two effort would land well. Save the heavy lift for tomorrow.";
+  return "Recovery only — keep it gentle. Walk, mobilize, breathe. The work is rest.";
+}
+
 export default function MorningBriefing() {
-  const recoveryScore = 68;
-  const phase = "Building";
-  const phaseNote = "Your creative energy is returning. Let it lead.";
-  const ringBg = `conic-gradient(#4fd99a 0% ${recoveryScore}%, rgba(255,255,255,0.06) ${recoveryScore}% 100%)`;
+  const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [needsCheckin, setNeedsCheckin] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Whoop (kept separate: connected !== data present)
+  const [whoop, setWhoop] = useState<WhoopData | null>(null);
+
+  // Calendar
+  const [calendar, setCalendar] = useState<CalendarResponse | null>(null);
+
+  // Sacral answers keyed by prompt
+  const [sacralAnswers, setSacralAnswers] = useState<Record<string, SacralChoice>>({});
+
+  const fetchBriefing = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/briefing");
+      if (!res.ok) throw new Error("Failed to fetch briefing");
+      const data = await res.json();
+      if (data.needsCheckin) {
+        setNeedsCheckin(true);
+      } else if (data.briefing) {
+        setBriefing(data.briefing);
+        setNeedsCheckin(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Something went wrong");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchBriefing();
+  }, [fetchBriefing]);
+
+  // Whoop — status gate first, then data (null data still means connected)
+  useEffect(() => {
+    (async () => {
+      try {
+        const statusRes = await fetch("/api/whoop/status");
+        if (!statusRes.ok) return;
+        const { connected } = await statusRes.json();
+        if (!connected) return;
+        const dataRes = await fetch("/api/whoop/data");
+        if (dataRes.ok) setWhoop(await dataRes.json());
+      } catch {
+        /* leave whoop null — tiles show placeholders */
+      }
+    })();
+  }, []);
+
+  // Calendar
+  useEffect(() => {
+    fetch("/api/calendar")
+      .then((r) => r.json())
+      .then((d: CalendarResponse) => {
+        if (!d.error) setCalendar(d);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Existing sacral responses for today
+  useEffect(() => {
+    fetch("/api/sacral")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: { prompt: string; response: "yes" | "no" }[]) => {
+        if (Array.isArray(rows) && rows.length) {
+          const m: Record<string, SacralChoice> = {};
+          rows.forEach((d) => {
+            m[d.prompt] = d.response;
+          });
+          setSacralAnswers(m);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  function handleCheckinComplete() {
+    setNeedsCheckin(false);
+    setLoading(true);
+    fetchBriefing();
+  }
+
+  async function answerSacral(prompt: string, response: SacralChoice) {
+    setSacralAnswers((prev) => ({ ...prev, [prompt]: response }));
+    // Backend stores yes/no only; "unsure" stays local
+    if (response === "yes" || response === "no") {
+      try {
+        await fetch("/api/sacral", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt, response }),
+        });
+      } catch (err) {
+        console.error("Sacral response failed:", err);
+      }
+    }
+  }
+
+  if (needsCheckin) {
+    return <DailyCheckinModal onComplete={handleCheckinComplete} />;
+  }
+
+  if (loading) {
+    return (
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "40px 44px" }}>
+        <div style={{ ...MONO, fontSize: 11, letterSpacing: "1.5px", color: "#4fd99a", textTransform: "uppercase", marginBottom: 24 }}>
+          Maya is reading the morning…
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <div
+              key={i}
+              style={{
+                height: i === 0 ? 128 : 84,
+                borderRadius: 16,
+                background: "rgba(255,255,255,0.03)",
+                border: "1px solid rgba(255,255,255,0.05)",
+                animation: "mayaBreathe 4s ease-in-out infinite",
+                animationDelay: `${i * 0.15}s`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !briefing) {
+    return (
+      <div style={{ maxWidth: 720, margin: "0 auto", padding: "48px 44px" }}>
+        <div style={{ border: "1px solid rgba(217,180,95,0.3)", borderRadius: 16, padding: 24, background: "rgba(217,180,95,0.06)" }}>
+          <div style={{ ...MONO, fontSize: 10, letterSpacing: "1.5px", color: "#d9b45f", textTransform: "uppercase", marginBottom: 8 }}>
+            Briefing unavailable
+          </div>
+          <p style={{ fontSize: 14, color: "#cdd2cd", margin: "0 0 16px", lineHeight: 1.5 }}>
+            {error ?? "Couldn't load today's briefing."}
+          </p>
+          <button
+            onClick={fetchBriefing}
+            style={{ ...MONO, fontSize: 12, padding: "9px 16px", borderRadius: 10, border: "1px solid #4fd99a", background: "rgba(79,217,154,0.13)", color: "#4fd99a", cursor: "pointer" }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Derived values from live data ───────────────────────────────────────────
+  const recoveryScore = whoop?.recovery?.score?.recovery_score ?? null;
+  const hrv = whoop?.recovery?.score?.hrv_rmssd_milli ?? null;
+  const rhr = whoop?.recovery?.score?.resting_heart_rate ?? null;
+  const strain = whoop?.cycle?.score?.strain ?? null;
+  const sleepEff = whoop?.sleep?.score?.sleep_efficiency_percentage ?? null;
+
+  let sleepStr: string | null = null;
+  if (whoop?.sleep?.start && whoop?.sleep?.end) {
+    const ms = new Date(whoop.sleep.end).getTime() - new Date(whoop.sleep.start).getTime();
+    const totalMin = Math.round(ms / 60000);
+    sleepStr = `${Math.floor(totalMin / 60)}:${String(totalMin % 60).padStart(2, "0")}`;
+  }
+
+  const ringPct = recoveryScore ?? 0;
+  const ringBg = `conic-gradient(#4fd99a 0% ${ringPct}%, rgba(255,255,255,0.06) ${ringPct}% 100%)`;
+
+  const todayEvents = calendar ? getTodayEvents(calendar.events) : [];
+  const load = calendar ? classifyCalendarLoad(calendar.events) : null;
+
+  const hour = new Date().getHours();
+  const partOfDay = hour < 12 ? "Morning" : hour < 18 ? "Afternoon" : "Evening";
+  const nowStr = new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" });
+  const dateStr = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "Europe/Berlin" });
+
+  const dim = (s: string | number | null, suffix = "") => (s == null ? "—" : `${s}${suffix}`);
 
   return (
     <div style={{ position: "relative", overflow: "hidden" }}>
@@ -60,22 +288,23 @@ export default function MorningBriefing() {
           </div>
           <div>
             <div style={{ ...MONO, fontSize: 10, letterSpacing: "2px", color: "#4fd99a", textTransform: "uppercase" }}>Maya</div>
-            <div style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>06:42 · listening</div>
+            <div style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>{nowStr} · listening</div>
           </div>
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 18 }}>
-            <span style={{ ...MONO, fontSize: 11, color: "#7d837d", letterSpacing: "0.5px" }}>Thursday · June 18</span>
+            <span style={{ ...MONO, fontSize: 11, color: "#7d837d", letterSpacing: "0.5px" }}>{dateStr}</span>
             <i className="ph ph-bell" style={{ fontSize: 19, color: "#7d837d", cursor: "pointer" }} />
           </div>
         </div>
 
         {/* Greeting */}
         <h1 style={{ fontWeight: 300, fontSize: 32, lineHeight: 1.32, color: "#eef0ee", margin: "0 0 12px", letterSpacing: "-0.4px", maxWidth: 760 }}>
-          Morning, Philipp. You&rsquo;re recovered and rising &mdash; <span style={{ color: "#4fd99a", fontWeight: 400 }}>this is a focus day.</span> Let&rsquo;s protect the cave and move on what feels alive.
+          {partOfDay}, Philipp. {recoveryClause(recoveryScore)}
+          <span style={{ color: "#4fd99a", fontWeight: 400 }}>this is a {briefing.day_type.toLowerCase()} day.</span>
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 28 }}>
           <i className="ph-fill ph-diamond" style={{ fontSize: 11, color: "#4fd99a" }} />
           <span style={{ ...MONO, fontSize: 11, letterSpacing: "0.5px", color: "#868d86" }}>
-            <span style={{ color: "#cdd2cd" }}>{phase} phase</span> · {phaseNote}
+            <span style={{ color: "#cdd2cd" }}>{briefing.phase} phase</span> · {briefing.phase_message}
           </span>
         </div>
 
@@ -86,50 +315,52 @@ export default function MorningBriefing() {
               <i className="ph-duotone ph-pulse" style={{ fontSize: 16, color: "#4fd99a" }} />
               <span style={{ ...MONO, fontSize: 10, letterSpacing: "1.5px", color: "#7d837d", textTransform: "uppercase" }}>Whoop · this morning</span>
             </div>
-            <span style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>synced 06:31</span>
+            <span style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>
+              {whoop?.fetchedAt ? `synced ${new Date(whoop.fetchedAt).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/Berlin" })}` : "no sync yet"}
+            </span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr 1fr", gap: 18, alignItems: "center" }}>
             {/* Recovery ring */}
             <div style={{ position: "relative", width: 128, height: 128, borderRadius: "50%", background: ringBg, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 26px rgba(79,217,154,0.18)" }}>
               <div style={{ width: 104, height: 104, borderRadius: "50%", background: "#080909", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
-                <span style={{ ...MONO, fontSize: 34, color: "#4fd99a", fontWeight: 600, lineHeight: 1 }}>{recoveryScore}</span>
+                <span style={{ ...MONO, fontSize: 34, color: "#4fd99a", fontWeight: 600, lineHeight: 1 }}>{dim(recoveryScore)}</span>
                 <span style={{ ...MONO, fontSize: 8, color: "#7d837d", letterSpacing: "1.5px" }}>RECOVERY</span>
               </div>
             </div>
             {/* HRV */}
             <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <i className="ph-duotone ph-wave-sine" style={{ fontSize: 18, color: "#4fd99a" }} />
-              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>64</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>ms</span></div>
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>{hrv != null ? Math.round(hrv) : "—"}</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>ms</span></div>
               <div>
                 <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>HRV</div>
-                <div style={{ fontSize: 10, color: "#4fd99a", marginTop: 2 }}>▲ 9% · 3-day rise</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>rmssd</div>
               </div>
             </div>
             {/* Resting HR */}
             <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <i className="ph-duotone ph-heartbeat" style={{ fontSize: 18, color: "#4fd99a" }} />
-              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>52</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>bpm</span></div>
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>{rhr != null ? Math.round(rhr) : "—"}</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>bpm</span></div>
               <div>
                 <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>RESTING HR</div>
-                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>steady</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>overnight</div>
               </div>
             </div>
             {/* Sleep */}
             <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <i className="ph-duotone ph-moon-stars" style={{ fontSize: 18, color: "#4fd99a" }} />
-              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>7:12</span></div>
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>{sleepStr ?? "—"}</span></div>
               <div>
                 <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>SLEEP</div>
-                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>88% efficiency</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>{sleepEff != null ? `${Math.round(sleepEff)}% efficiency` : "—"}</div>
               </div>
             </div>
             {/* Strain */}
             <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
               <i className="ph-duotone ph-lightning" style={{ fontSize: 18, color: "#d9b45f" }} />
-              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>8.2</span></div>
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>{strain != null ? strain.toFixed(1) : "—"}</span></div>
               <div>
                 <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>STRAIN · YEST</div>
-                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>light day</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>0–21 scale</div>
               </div>
             </div>
           </div>
@@ -140,22 +371,22 @@ export default function MorningBriefing() {
           <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(79,217,154,0.08)", border: "1px solid rgba(79,217,154,0.2)" }}>
             <i className="ph-fill ph-crosshair" style={{ fontSize: 16, color: "#4fd99a" }} />
             <span style={{ fontSize: 12, color: "#7d837d" }}>day</span>
-            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Focus</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>{briefing.day_type}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
             <i className="ph ph-barbell" style={{ fontSize: 16, color: "#868d86" }} />
             <span style={{ fontSize: 12, color: "#7d837d" }}>train</span>
-            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Moderate</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>{briefing.training}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
             <i className="ph ph-scales" style={{ fontSize: 16, color: "#868d86" }} />
             <span style={{ fontSize: 12, color: "#7d837d" }}>decisions</span>
-            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Full capacity</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>{briefing.avoid_heavy_decisions ? "Protect" : "Full capacity"}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(79,217,154,0.08)", border: "1px solid rgba(79,217,154,0.2)" }}>
             <i className="ph-fill ph-sparkle" style={{ fontSize: 16, color: "#4fd99a" }} />
             <span style={{ fontSize: 12, color: "#7d837d" }}>creative</span>
-            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>High</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>{creativeFromPhase(briefing.phase)}</span>
           </div>
         </div>
 
@@ -171,20 +402,15 @@ export default function MorningBriefing() {
                 <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Worth responding to</span>
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
-                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>The Q3 brand identity is waiting — does it pull you this morning?</span>
-                </div>
-                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
-                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>Reply on the partnership thread. Your gut already knows the answer.</span>
-                </div>
-                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
-                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
-                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
-                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>Deep-work block 9–11 is protected. The cave is yours.</span>
-                </div>
+                {briefing.top_priorities.map((p, i) => (
+                  <div key={i}>
+                    {i > 0 && <div style={{ height: 1, background: "rgba(255,255,255,0.05)", marginBottom: 15 }} />}
+                    <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                      <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
+                      <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>{p}</span>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -196,11 +422,16 @@ export default function MorningBriefing() {
               </div>
               <p style={{ fontSize: 12.5, color: "#868d86", margin: "0 0 20px" }}>Answer from the body, not the mind. First response only.</p>
               <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                <SacralGroup question="Does the product redesign feel like a yes right now?" />
-                <div style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
-                <SacralGroup question="Is the 2pm investor call a yes in your body?" />
-                <div style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
-                <SacralGroup question="Does a zone-2 run before lunch feel right?" />
+                {briefing.sacral_prompts.map((prompt, i) => (
+                  <div key={prompt}>
+                    {i > 0 && <div style={{ height: 1, background: "rgba(255,255,255,0.06)", marginBottom: 18 }} />}
+                    <SacralGroup
+                      question={`Does ${prompt} feel like a yes?`}
+                      value={sacralAnswers[prompt] ?? null}
+                      onChange={(v) => answerSacral(prompt, v)}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -214,23 +445,26 @@ export default function MorningBriefing() {
                   <i className="ph ph-calendar-blank" style={{ fontSize: 16, color: "#4fd99a" }} />
                   <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Today</span>
                 </div>
-                <span style={{ ...MONO, fontSize: 10, color: "#d9b45f" }}>light load</span>
+                {load && <span style={{ ...MONO, fontSize: 10, color: load.label === "Heavy" ? "#e0807f" : load.label === "Moderate" ? "#d9b45f" : "#4fd99a" }}>{load.label.toLowerCase()} load</span>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {[
-                  { time: "09:00", title: "Deep work — Q3 identity", sub: "protected · cave", accent: "#4fd99a", border: "#4fd99a" },
-                  { time: "11:30", title: "Team standup", sub: "30 min", accent: "#7d837d", border: "rgba(255,255,255,0.12)" },
-                  { time: "14:00", title: "Investor call", sub: "emotional load — is it yours?", accent: "#d9b45f", border: "#d9b45f" },
-                  { time: "16:00", title: "1:1 with Sara", sub: "45 min", accent: "#7d837d", border: "rgba(255,255,255,0.12)" },
-                ].map((ev) => (
-                  <div key={ev.time} style={{ display: "flex", gap: 12 }}>
-                    <span style={{ ...MONO, fontSize: 11, color: "#7d837d", width: 44, flex: "none", paddingTop: 2 }}>{ev.time}</span>
-                    <div style={{ borderLeft: `2px solid ${ev.border}`, paddingLeft: 12, flex: 1 }}>
-                      <div style={{ fontSize: 13.5, color: ev.border === "#4fd99a" ? "#eef0ee" : "#cdd2cd" }}>{ev.title}</div>
-                      <div style={{ fontSize: 11, color: ev.accent, marginTop: 2 }}>{ev.sub}</div>
-                    </div>
-                  </div>
-                ))}
+                {todayEvents.length === 0 ? (
+                  <p style={{ fontSize: 13, color: "#7d837d", margin: 0 }}>No events today — good space for deep work.</p>
+                ) : (
+                  todayEvents.map((ev) => {
+                    const busy = ev.isBusy;
+                    const border = busy ? "#d9b45f" : "#4fd99a";
+                    return (
+                      <div key={ev.id} style={{ display: "flex", gap: 12 }}>
+                        <span style={{ ...MONO, fontSize: 11, color: "#7d837d", width: 52, flex: "none", paddingTop: 2 }}>{formatEventTime(ev)}</span>
+                        <div style={{ borderLeft: `2px solid ${border}`, paddingLeft: 12, flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13.5, color: busy ? "#cdd2cd" : "#eef0ee" }}>{busy ? "Busy (work)" : (ev.summary || "(No title)")}</div>
+                          {ev.location && !busy && <div style={{ fontSize: 11, color: "#7d837d", marginTop: 2 }}>{ev.location}</div>}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -240,7 +474,7 @@ export default function MorningBriefing() {
                 <i className="ph ph-barbell" style={{ fontSize: 16, color: "#4fd99a" }} />
                 <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Move</span>
               </div>
-              <p style={{ fontSize: 14, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>Moderate today — a zone-two run before lunch would land well. Save the heavy lift for tomorrow.</p>
+              <p style={{ fontSize: 14, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>{moveText(briefing.training)}</p>
             </div>
 
             {/* Fuel */}
@@ -250,7 +484,10 @@ export default function MorningBriefing() {
                 <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Fuel</span>
               </div>
               <p style={{ fontSize: 14, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>
-                Magnesium + omega-3 with breakfast. Creatine post-training. <span style={{ color: "#d9b45f" }}>Hold the ashwagandha</span> — HRV doesn&rsquo;t need it this week.
+                {briefing.supplement_focus}
+                {briefing.what_to_pause && (
+                  <> <span style={{ color: "#d9b45f" }}>Hold: {briefing.what_to_pause}</span></>
+                )}
               </p>
             </div>
 
@@ -260,17 +497,13 @@ export default function MorningBriefing() {
                 <i className="ph ph-shield-check" style={{ fontSize: 16, color: "#4fd99a" }} />
                 <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Alignment</span>
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                  <span style={{ color: "#a2a8a2" }}>Frustration risk</span><span style={{ color: "#4fd99a" }}>Low</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                  <span style={{ color: "#a2a8a2" }}>Cave environment</span><span style={{ color: "#4fd99a" }}>Ready</span>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
-                  <span style={{ color: "#a2a8a2" }}>Emotional load</span><span style={{ color: "#d9b45f" }}>2pm flagged</span>
-                </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, marginBottom: 10 }}>
+                <span style={{ color: "#a2a8a2" }}>Heavy decisions</span>
+                <span style={{ color: briefing.avoid_heavy_decisions ? "#d9b45f" : "#4fd99a" }}>{briefing.avoid_heavy_decisions ? "Hold" : "Clear"}</span>
               </div>
+              {briefing.decision_reason && (
+                <p style={{ fontSize: 12.5, color: "#868d86", margin: 0, lineHeight: 1.5 }}>{briefing.decision_reason}</p>
+              )}
             </div>
           </div>
         </div>
