@@ -99,7 +99,7 @@ export default function SupplementsPage() {
           </button>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 372px", gap: 18, alignItems: "start" }}>
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_372px]" style={{ gap: 18, alignItems: "start" }}>
 
           {/* LEFT — stack */}
           <div>

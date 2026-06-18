@@ -160,7 +160,7 @@ export default function MorningBriefing() {
         </div>
 
         {/* Two-column grid */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 372px", gap: 18, alignItems: "start" }}>
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_372px]" style={{ gap: 18, alignItems: "start" }}>
 
           {/* LEFT */}
           <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
