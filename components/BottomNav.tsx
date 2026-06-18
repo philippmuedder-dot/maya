@@ -104,10 +104,10 @@ export function BottomNav() {
         }`}
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
-        <div className="bg-white dark:bg-neutral-900 rounded-t-2xl shadow-xl border-t border-neutral-200 dark:border-neutral-800">
+        <div className="rounded-t-2xl shadow-xl border-t" style={{ background: "#0a0b0b", borderColor: "rgba(255,255,255,0.06)" }}>
           {/* Handle bar */}
           <div className="flex justify-center pt-3 pb-2">
-            <div className="w-10 h-1 rounded-full bg-neutral-300 dark:bg-neutral-600" />
+            <div style={{ width: 40, height: 4, borderRadius: 999, background: "rgba(255,255,255,0.12)" }} />
           </div>
 
           {/* Grid of pages */}
@@ -119,11 +119,8 @@ export function BottomNav() {
                   key={href}
                   href={href}
                   onClick={closeDrawer}
-                  className={`flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl transition-colors ${
-                    active
-                      ? "bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100"
-                      : "text-neutral-600 dark:text-neutral-400 active:bg-neutral-100 dark:active:bg-neutral-800"
-                  }`}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px 8px", borderRadius: 12, color: active ? "#eef0ee" : "#7d837d", background: active ? "rgba(79,217,154,0.1)" : "transparent" }}
+                className=""
                 >
                   <span className="text-2xl">{emoji}</span>
                   <span className="text-[11px] font-medium">{label}</span>
@@ -136,8 +133,8 @@ export function BottomNav() {
 
       {/* Bottom tab bar */}
       <nav
-        className="fixed bottom-0 left-0 right-0 z-40 bg-white/80 dark:bg-neutral-950/80 backdrop-blur-lg border-t border-neutral-200 dark:border-neutral-800 md:hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        className="fixed bottom-0 left-0 right-0 z-40 md:hidden backdrop-blur-lg border-t"
+        style={{ background: "rgba(10,11,11,0.85)", borderColor: "rgba(255,255,255,0.06)", paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="flex">
           {mainTabs.map(({ href, label, icon }) => {
@@ -146,11 +143,8 @@ export function BottomNav() {
               <Link
                 key={href}
                 href={href}
-                className={`flex flex-col items-center justify-center min-h-[52px] gap-0.5 flex-1 transition-colors ${
-                  active
-                    ? "text-neutral-900 dark:text-neutral-100"
-                    : "text-neutral-400 dark:text-neutral-500"
-                }`}
+                  style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 52, gap: 2, flex: 1, color: active ? "#4fd99a" : "#7d837d" }}
+                className=""
               >
                 {icon(active)}
                 <span className="text-[10px] font-medium">{label}</span>
@@ -161,11 +155,7 @@ export function BottomNav() {
           {/* More button */}
           <button
             onClick={() => setDrawerOpen((o) => !o)}
-            className={`flex flex-col items-center justify-center min-h-[52px] gap-0.5 flex-1 transition-colors ${
-              moreIsActive || drawerOpen
-                ? "text-neutral-900 dark:text-neutral-100"
-                : "text-neutral-400 dark:text-neutral-500"
-            }`}
+            style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: 52, gap: 2, flex: 1, color: moreIsActive || drawerOpen ? "#4fd99a" : "#7d837d", background: "none", border: "none", cursor: "pointer" }}
           >
             <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
               <circle cx="5" cy="12" r="2" />

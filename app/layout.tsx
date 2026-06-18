@@ -1,12 +1,9 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { Sidebar } from "@/components/Sidebar";
 import { BottomNav } from "@/components/BottomNav";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "MAYA — Personal Operating System",
@@ -33,13 +30,17 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${inter.className} bg-white dark:bg-neutral-950 text-neutral-900 dark:text-neutral-100`}
-      >
+      <head>
+        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css" />
+        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css" />
+        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css" />
+        <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css" />
+      </head>
+      <body style={{ margin: 0, background: "#060707", color: "#eef0ee", fontFamily: "'Sora', system-ui, sans-serif" }}>
         <Providers>
-          <div className="flex min-h-screen">
+          <div style={{ minHeight: "100vh", display: "flex", background: "#060707" }}>
             <Sidebar />
-            <main className="flex-1 md:ml-64 px-4 py-6 md:p-8 pb-20 md:pb-8">
+            <main style={{ flex: 1, minWidth: 0, position: "relative", overflow: "hidden" }} className="pb-20 md:pb-0">
               <ErrorBoundary>{children}</ErrorBoundary>
             </main>
             <BottomNav />

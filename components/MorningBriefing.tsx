@@ -1,260 +1,280 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import DailyCheckinModal from "./DailyCheckinModal";
-import ProactiveAlerts from "./ProactiveAlerts";
-import DailyTasks from "./DailyTasks";
-import SacralPanel from "./SacralPanel";
-import { CalendarPanel } from "./CalendarPanel";
+import { useState } from "react";
 
-interface Briefing {
-  day_type: "Focus" | "Maintenance" | "Recovery";
-  training: "Hard" | "Moderate" | "Recovery only";
-  avoid_heavy_decisions: boolean;
-  decision_reason: string;
-  top_priorities: string[];
-  supplement_focus: string;
-  what_to_pause: string;
-  phase: "Survival" | "Building" | "Thriving";
-  phase_message: string;
-  sacral_prompts: string[];
+const MONO: React.CSSProperties = { fontFamily: "'JetBrains Mono', monospace" };
+
+type SacralChoice = "yes" | "no" | "unsure" | null;
+
+function SacralGroup({ question }: { question: string }) {
+  const [choice, setChoice] = useState<SacralChoice>(null);
+  const options: SacralChoice[] = ["yes", "no", "unsure"];
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16 }}>
+      <span style={{ fontSize: 15, color: "#dfe3df", lineHeight: 1.4 }}>{question}</span>
+      <div style={{ display: "flex", gap: 7, flex: "none" }}>
+        {options.map((opt) => {
+          const active = choice === opt;
+          return (
+            <button
+              key={opt}
+              onClick={() => setChoice(opt)}
+              style={{
+                ...MONO,
+                fontSize: 12,
+                padding: "9px 15px",
+                borderRadius: 10,
+                border: `1px solid ${active ? "#4fd99a" : "rgba(255,255,255,0.12)"}`,
+                background: active ? "rgba(79,217,154,0.13)" : "transparent",
+                color: active ? "#4fd99a" : "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+                transition: "all 0.15s",
+              }}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
-const DAY_TYPE_STYLE: Record<string, { bg: string; text: string; icon: string }> = {
-  Focus: {
-    bg: "bg-blue-50 dark:bg-blue-900/20",
-    text: "text-blue-700 dark:text-blue-300",
-    icon: "🎯",
-  },
-  Maintenance: {
-    bg: "bg-amber-50 dark:bg-amber-900/20",
-    text: "text-amber-700 dark:text-amber-300",
-    icon: "🔧",
-  },
-  Recovery: {
-    bg: "bg-emerald-50 dark:bg-emerald-900/20",
-    text: "text-emerald-700 dark:text-emerald-300",
-    icon: "🌿",
-  },
-};
-
-const TRAINING_STYLE: Record<string, string> = {
-  Hard: "text-red-600 dark:text-red-400",
-  Moderate: "text-amber-600 dark:text-amber-400",
-  "Recovery only": "text-emerald-600 dark:text-emerald-400",
-};
-
-const PHASE_STYLE: Record<string, { bg: string; icon: string }> = {
-  Survival: { bg: "bg-red-50 dark:bg-red-900/20", icon: "🛡️" },
-  Building: { bg: "bg-blue-50 dark:bg-blue-900/20", icon: "🏗️" },
-  Thriving: { bg: "bg-emerald-50 dark:bg-emerald-900/20", icon: "🌟" },
-};
-
 export default function MorningBriefing() {
-  const [briefing, setBriefing] = useState<Briefing | null>(null);
-  const [needsCheckin, setNeedsCheckin] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const recoveryScore = 68;
+  const phase = "Building";
+  const phaseNote = "Your creative energy is returning. Let it lead.";
+  const ringBg = `conic-gradient(#4fd99a 0% ${recoveryScore}%, rgba(255,255,255,0.06) ${recoveryScore}% 100%)`;
 
-  const fetchBriefing = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/briefing");
-      if (!res.ok) throw new Error("Failed to fetch briefing");
-      const data = await res.json();
+  return (
+    <div style={{ position: "relative", overflow: "hidden" }}>
+      {/* Aura */}
+      <div style={{ position: "absolute", top: -180, left: "30%", width: 680, height: 460, background: "radial-gradient(ellipse at center, rgba(79,217,154,0.10), rgba(79,217,154,0) 70%)", pointerEvents: "none" }} />
 
-      if (data.needsCheckin) {
-        setNeedsCheckin(true);
-      } else if (data.briefing) {
-        setBriefing(data.briefing);
-        setNeedsCheckin(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1180, margin: "0 auto", padding: "30px 44px 56px" }}>
 
-  useEffect(() => {
-    fetchBriefing();
-  }, [fetchBriefing]);
+        {/* Presence bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 13, marginBottom: 30 }}>
+          <div style={{ position: "relative", width: 36, height: 36, flex: "none" }}>
+            <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "radial-gradient(circle at 40% 35%, #4fd99a, #176b4a)", animation: "mayaBreathe 4s ease-in-out infinite", boxShadow: "0 0 22px rgba(79,217,154,0.45)" }} />
+          </div>
+          <div>
+            <div style={{ ...MONO, fontSize: 10, letterSpacing: "2px", color: "#4fd99a", textTransform: "uppercase" }}>Maya</div>
+            <div style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>06:42 · listening</div>
+          </div>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 18 }}>
+            <span style={{ ...MONO, fontSize: 11, color: "#7d837d", letterSpacing: "0.5px" }}>Thursday · June 18</span>
+            <i className="ph ph-bell" style={{ fontSize: 19, color: "#7d837d", cursor: "pointer" }} />
+          </div>
+        </div>
 
-  function handleCheckinComplete() {
-    setNeedsCheckin(false);
-    setLoading(true);
-    fetchBriefing();
-  }
+        {/* Greeting */}
+        <h1 style={{ fontWeight: 300, fontSize: 32, lineHeight: 1.32, color: "#eef0ee", margin: "0 0 12px", letterSpacing: "-0.4px", maxWidth: 760 }}>
+          Morning, Philipp. You&rsquo;re recovered and rising &mdash; <span style={{ color: "#4fd99a", fontWeight: 400 }}>this is a focus day.</span> Let&rsquo;s protect the cave and move on what feels alive.
+        </h1>
+        <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 28 }}>
+          <i className="ph-fill ph-diamond" style={{ fontSize: 11, color: "#4fd99a" }} />
+          <span style={{ ...MONO, fontSize: 11, letterSpacing: "0.5px", color: "#868d86" }}>
+            <span style={{ color: "#cdd2cd" }}>{phase} phase</span> · {phaseNote}
+          </span>
+        </div>
 
-  if (needsCheckin) {
-    return <DailyCheckinModal onComplete={handleCheckinComplete} />;
-  }
+        {/* Whoop Overview */}
+        <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, background: "rgba(255,255,255,0.02)", padding: 24, marginBottom: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+              <i className="ph-duotone ph-pulse" style={{ fontSize: 16, color: "#4fd99a" }} />
+              <span style={{ ...MONO, fontSize: 10, letterSpacing: "1.5px", color: "#7d837d", textTransform: "uppercase" }}>Whoop · this morning</span>
+            </div>
+            <span style={{ ...MONO, fontSize: 10, color: "#5e645e" }}>synced 06:31</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "auto 1fr 1fr 1fr 1fr", gap: 18, alignItems: "center" }}>
+            {/* Recovery ring */}
+            <div style={{ position: "relative", width: 128, height: 128, borderRadius: "50%", background: ringBg, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 0 26px rgba(79,217,154,0.18)" }}>
+              <div style={{ width: 104, height: 104, borderRadius: "50%", background: "#080909", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+                <span style={{ ...MONO, fontSize: 34, color: "#4fd99a", fontWeight: 600, lineHeight: 1 }}>{recoveryScore}</span>
+                <span style={{ ...MONO, fontSize: 8, color: "#7d837d", letterSpacing: "1.5px" }}>RECOVERY</span>
+              </div>
+            </div>
+            {/* HRV */}
+            <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <i className="ph-duotone ph-wave-sine" style={{ fontSize: 18, color: "#4fd99a" }} />
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>64</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>ms</span></div>
+              <div>
+                <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>HRV</div>
+                <div style={{ fontSize: 10, color: "#4fd99a", marginTop: 2 }}>▲ 9% · 3-day rise</div>
+              </div>
+            </div>
+            {/* Resting HR */}
+            <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <i className="ph-duotone ph-heartbeat" style={{ fontSize: 18, color: "#4fd99a" }} />
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>52</span><span style={{ fontSize: 11, color: "#7d837d", marginLeft: 2 }}>bpm</span></div>
+              <div>
+                <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>RESTING HR</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>steady</div>
+              </div>
+            </div>
+            {/* Sleep */}
+            <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <i className="ph-duotone ph-moon-stars" style={{ fontSize: 18, color: "#4fd99a" }} />
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>7:12</span></div>
+              <div>
+                <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>SLEEP</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>88% efficiency</div>
+              </div>
+            </div>
+            {/* Strain */}
+            <div style={{ height: 128, borderRadius: 13, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)", padding: 16, display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
+              <i className="ph-duotone ph-lightning" style={{ fontSize: 18, color: "#d9b45f" }} />
+              <div><span style={{ ...MONO, fontSize: 25, color: "#eef0ee" }}>8.2</span></div>
+              <div>
+                <div style={{ ...MONO, fontSize: 8.5, letterSpacing: "1px", color: "#7d837d" }}>STRAIN · YEST</div>
+                <div style={{ fontSize: 10, color: "#868d86", marginTop: 2 }}>light day</div>
+              </div>
+            </div>
+          </div>
+        </div>
 
-  if (loading) {
-    return (
-      <div className="max-w-2xl space-y-6">
-        <div className="animate-pulse space-y-4">
-          <div className="h-8 bg-neutral-200 dark:bg-neutral-700 rounded w-48" />
-          <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-64" />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="h-24 bg-neutral-200 dark:bg-neutral-700 rounded-xl"
-              />
-            ))}
+        {/* Classification chips */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(79,217,154,0.08)", border: "1px solid rgba(79,217,154,0.2)" }}>
+            <i className="ph-fill ph-crosshair" style={{ fontSize: 16, color: "#4fd99a" }} />
+            <span style={{ fontSize: 12, color: "#7d837d" }}>day</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Focus</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <i className="ph ph-barbell" style={{ fontSize: 16, color: "#868d86" }} />
+            <span style={{ fontSize: 12, color: "#7d837d" }}>train</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Moderate</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.07)" }}>
+            <i className="ph ph-scales" style={{ fontSize: 16, color: "#868d86" }} />
+            <span style={{ fontSize: 12, color: "#7d837d" }}>decisions</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>Full capacity</span>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "11px 16px", borderRadius: 999, background: "rgba(79,217,154,0.08)", border: "1px solid rgba(79,217,154,0.2)" }}>
+            <i className="ph-fill ph-sparkle" style={{ fontSize: 16, color: "#4fd99a" }} />
+            <span style={{ fontSize: 12, color: "#7d837d" }}>creative</span>
+            <span style={{ fontSize: 13, color: "#eef0ee", fontWeight: 500 }}>High</span>
+          </div>
+        </div>
+
+        {/* Two-column grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 372px", gap: 18, alignItems: "start" }}>
+
+          {/* LEFT */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
+            {/* Priorities */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 22, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <i className="ph ph-target" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Worth responding to</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
+                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>The Q3 brand identity is waiting — does it pull you this morning?</span>
+                </div>
+                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
+                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>Reply on the partnership thread. Your gut already knows the answer.</span>
+                </div>
+                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+                <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+                  <i className="ph ph-arrow-bend-down-right" style={{ fontSize: 15, color: "#4fd99a", marginTop: 3, flex: "none" }} />
+                  <span style={{ fontSize: 14.5, color: "#cdd2cd", lineHeight: 1.5 }}>Deep-work block 9–11 is protected. The cave is yours.</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Sacral check hero */}
+            <div style={{ border: "1px solid rgba(79,217,154,0.25)", borderRadius: 16, padding: 24, background: "linear-gradient(135deg, rgba(79,217,154,0.07), rgba(79,217,154,0))" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 6 }}>
+                <div style={{ width: 8, height: 8, borderRadius: "50%", background: "#4fd99a", boxShadow: "0 0 10px #4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1.5px", color: "#4fd99a", textTransform: "uppercase" }}>Sacral check</span>
+              </div>
+              <p style={{ fontSize: 12.5, color: "#868d86", margin: "0 0 20px" }}>Answer from the body, not the mind. First response only.</p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+                <SacralGroup question="Does the product redesign feel like a yes right now?" />
+                <div style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
+                <SacralGroup question="Is the 2pm investor call a yes in your body?" />
+                <div style={{ height: 1, background: "rgba(255,255,255,0.06)" }} />
+                <SacralGroup question="Does a zone-2 run before lunch feel right?" />
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            {/* Today calendar */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 22, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className="ph ph-calendar-blank" style={{ fontSize: 16, color: "#4fd99a" }} />
+                  <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Today</span>
+                </div>
+                <span style={{ ...MONO, fontSize: 10, color: "#d9b45f" }}>light load</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+                {[
+                  { time: "09:00", title: "Deep work — Q3 identity", sub: "protected · cave", accent: "#4fd99a", border: "#4fd99a" },
+                  { time: "11:30", title: "Team standup", sub: "30 min", accent: "#7d837d", border: "rgba(255,255,255,0.12)" },
+                  { time: "14:00", title: "Investor call", sub: "emotional load — is it yours?", accent: "#d9b45f", border: "#d9b45f" },
+                  { time: "16:00", title: "1:1 with Sara", sub: "45 min", accent: "#7d837d", border: "rgba(255,255,255,0.12)" },
+                ].map((ev) => (
+                  <div key={ev.time} style={{ display: "flex", gap: 12 }}>
+                    <span style={{ ...MONO, fontSize: 11, color: "#7d837d", width: 44, flex: "none", paddingTop: 2 }}>{ev.time}</span>
+                    <div style={{ borderLeft: `2px solid ${ev.border}`, paddingLeft: 12, flex: 1 }}>
+                      <div style={{ fontSize: 13.5, color: ev.border === "#4fd99a" ? "#eef0ee" : "#cdd2cd" }}>{ev.title}</div>
+                      <div style={{ fontSize: 11, color: ev.accent, marginTop: 2 }}>{ev.sub}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Move */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 20, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <i className="ph ph-barbell" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Move</span>
+              </div>
+              <p style={{ fontSize: 14, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>Moderate today — a zone-two run before lunch would land well. Save the heavy lift for tomorrow.</p>
+            </div>
+
+            {/* Fuel */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 20, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <i className="ph ph-pill" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Fuel</span>
+              </div>
+              <p style={{ fontSize: 14, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>
+                Magnesium + omega-3 with breakfast. Creatine post-training. <span style={{ color: "#d9b45f" }}>Hold the ashwagandha</span> — HRV doesn&rsquo;t need it this week.
+              </p>
+            </div>
+
+            {/* Alignment */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, padding: 20, background: "rgba(255,255,255,0.02)" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                <i className="ph ph-shield-check" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Alignment</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span style={{ color: "#a2a8a2" }}>Frustration risk</span><span style={{ color: "#4fd99a" }}>Low</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span style={{ color: "#a2a8a2" }}>Cave environment</span><span style={{ color: "#4fd99a" }}>Ready</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                  <span style={{ color: "#a2a8a2" }}>Emotional load</span><span style={{ color: "#d9b45f" }}>2pm flagged</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-2xl space-y-6">
-        <div className="p-4 rounded-xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
-          <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
-          <button
-            onClick={fetchBriefing}
-            className="mt-2 text-xs text-red-600 underline hover:no-underline"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!briefing) return null;
-
-  const dayStyle = DAY_TYPE_STYLE[briefing.day_type] ?? DAY_TYPE_STYLE.Maintenance;
-  const phaseStyle = PHASE_STYLE[briefing.phase] ?? PHASE_STYLE.Building;
-
-  const today = new Date().toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-
-  return (
-    <div className="max-w-2xl space-y-6">
-      {/* Header */}
-      <div>
-        <p className="text-xs font-medium text-neutral-400 dark:text-neutral-500 uppercase tracking-widest mb-1">
-          {today}
-        </p>
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
-          Morning Briefing
-        </h1>
-      </div>
-
-      {/* Proactive Alerts */}
-      <ProactiveAlerts />
-
-      {/* Daily Tasks */}
-      <DailyTasks />
-
-      {/* Day Type + Training + Decision */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <div className={`p-4 rounded-xl ${dayStyle.bg}`}>
-          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
-            Day Type
-          </p>
-          <p className={`text-lg font-bold ${dayStyle.text}`}>
-            {dayStyle.icon} {briefing.day_type}
-          </p>
-        </div>
-        <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
-          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
-            Training
-          </p>
-          <p
-            className={`text-lg font-bold ${TRAINING_STYLE[briefing.training] ?? ""}`}
-          >
-            {briefing.training}
-          </p>
-        </div>
-        <div className="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-800/50">
-          <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1">
-            Decisions
-          </p>
-          <p
-            className={`text-sm font-medium ${
-              briefing.avoid_heavy_decisions
-                ? "text-amber-600 dark:text-amber-400"
-                : "text-emerald-600 dark:text-emerald-400"
-            }`}
-          >
-            {briefing.avoid_heavy_decisions
-              ? "Avoid heavy decisions"
-              : "Full capacity"}
-          </p>
-          <p className="text-xs text-neutral-500 mt-0.5">
-            {briefing.decision_reason}
-          </p>
-        </div>
-      </div>
-
-      {/* Top Priorities */}
-      <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700">
-        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 mb-3">
-          Top Priorities — respond to these
-        </h3>
-        <ol className="space-y-2">
-          {briefing.top_priorities.map((p, i) => (
-            <li key={i} className="flex items-start gap-3">
-              <span className="text-xs font-bold text-neutral-400 mt-0.5 w-4 shrink-0">
-                {i + 1}
-              </span>
-              <span className="text-sm text-neutral-700 dark:text-neutral-300">
-                {p}
-              </span>
-            </li>
-          ))}
-        </ol>
-      </div>
-
-      {/* Supplement Focus + What to Pause */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700">
-          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-1">
-            Supplement Focus
-          </h3>
-          <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            {briefing.supplement_focus}
-          </p>
-        </div>
-        <div className="p-4 rounded-xl border border-neutral-200 dark:border-neutral-700">
-          <h3 className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 mb-1">
-            Consider Pausing
-          </h3>
-          <p className="text-sm text-neutral-700 dark:text-neutral-300">
-            {briefing.what_to_pause}
-          </p>
-        </div>
-      </div>
-
-      {/* Phase */}
-      <div className={`p-4 rounded-xl ${phaseStyle.bg}`}>
-        <div className="flex items-center gap-2 mb-1">
-          <span>{phaseStyle.icon}</span>
-          <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-            {briefing.phase} Mode
-          </h3>
-        </div>
-        <p className="text-sm text-neutral-700 dark:text-neutral-300">
-          {briefing.phase_message}
-        </p>
-      </div>
-
-      {/* Sacral Response Panel */}
-      {briefing.sacral_prompts?.length > 0 && (
-        <SacralPanel prompts={briefing.sacral_prompts} />
-      )}
-
-      {/* Calendar */}
-      <CalendarPanel />
     </div>
   );
 }

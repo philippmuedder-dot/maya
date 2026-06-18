@@ -1,316 +1,158 @@
-import type { Metadata } from "next";
-import { getServerSession } from "next-auth";
+"use client";
 
-export const metadata: Metadata = { title: "MAYA — Wellbeing" };
-import { authOptions } from "@/lib/auth";
-import { getValidWhoopToken, fetchWhoopData, WhoopData } from "@/lib/whoop";
-import { RecoveryRing } from "@/components/RecoveryRing";
-import WorkoutSection from "./WorkoutSection";
-import EatingWindowSection from "./EatingWindowSection";
-import WorkoutPatterns from "./WorkoutPatterns";
+import { useState } from "react";
 
-// ─── Training recommendation logic ─────────────────────────────────────────────
+const MONO = { fontFamily: "'JetBrains Mono', monospace" } as const;
 
-type TrainingTier = "hard" | "moderate" | "recovery";
+type GutChoice = "yes" | "no" | null;
 
-interface TrainingRec {
-  tier: TrainingTier;
-  headline: string;
-  subline: string;
-  suggestions: string[];
-  timing: string;
-  nutrition: {
-    headline: string;
-    points: string[];
-  };
-}
-
-function getTrainingRec(recovery: number | null): TrainingRec {
-  if (recovery === null) {
-    return {
-      tier: "moderate",
-      headline: "No recovery data yet",
-      subline: "Connect Whoop in Settings to get personalised daily training guidance.",
-      suggestions: [
-        "Default: moderate effort — zone 2 cardio or mobility work",
-        "Listen to your body and respond accordingly",
-        "Strength training if energy feels high",
-      ],
-      timing: "Morning or early afternoon",
-      nutrition: {
-        headline: "Balanced day",
-        points: [
-          "Adequate protein: 1.6–2g per kg bodyweight",
-          "Eat in direct light — your digestion thrives in it",
-          "Prioritise whole foods, fibre, and hydration",
-          "Avoid processed food; gut health drives recovery",
-        ],
-      },
-    };
-  }
-
-  if (recovery >= 70) {
-    return {
-      tier: "hard",
-      headline: "Hard session day",
-      subline: `Recovery at ${recovery}% — your body is primed. This is the window for strength and muscle-building work.`,
-      suggestions: [
-        "Compound lifts: squat, deadlift, bench, overhead press",
-        "Target 3–5 sets per movement, 6–12 rep range",
-        "Progressive overload — add weight or reps vs last session",
-        "Rest 2–3 min between heavy sets",
-        "Finish with 10–15 min zone 2 cooldown if desired",
-      ],
-      timing: "Morning or early afternoon — avoid training within 3h of sleep",
-      nutrition: {
-        headline: "High-protein day — hard training fuel",
-        points: [
-          "Protein: aim for 2g per kg bodyweight today",
-          "Pre-workout: complex carbs 90–120 min before (oats, rice, fruit)",
-          "Post-workout: protein + carbs within 90 min (Greek yoghurt, eggs, rice)",
-          "Eat in direct light — your digestion type thrives here",
-          "Creatine and magnesium glycinate support strength performance",
-        ],
-      },
-    };
-  }
-
-  if (recovery >= 50) {
-    return {
-      tier: "moderate",
-      headline: "Moderate session day",
-      subline: `Recovery at ${recovery}% — solid but not peak. Protect your long-term capacity; moderate effort pays off more than pushing through.`,
-      suggestions: [
-        "Zone 2 cardio: 30–45 min at conversational pace (130–145 BPM)",
-        "Mobility flow or yoga: hip openers, thoracic rotation, shoulder work",
-        "Light strength: machines, cables, bodyweight — not max effort",
-        "Stretching + breathwork to support parasympathetic recovery",
-      ],
-      timing: "Morning preferred — afternoon if energy picks up",
-      nutrition: {
-        headline: "Moderate protein — recovery-supportive",
-        points: [
-          "Protein: 1.6–1.8g per kg bodyweight",
-          "Anti-inflammatory focus: berries, leafy greens, olive oil, fatty fish",
-          "Omega-3s today support the recovery you need",
-          "Eat in direct light — not at a dark desk",
-          "Limit alcohol — it compounds suboptimal recovery",
-        ],
-      },
-    };
-  }
-
-  return {
-    tier: "recovery",
-    headline: "Recovery-only day",
-    subline: `Recovery at ${recovery}% — your system is rebuilding. This is not laziness; it's the longevity protocol working. Protect it.`,
-    suggestions: [
-      "20–30 min slow walk outdoors — sunlight + movement",
-      "Gentle stretching or yin yoga (no intensity)",
-      "Breathwork: box breathing, 4-7-8, or Wim Hof light",
-      "Avoid anything that spikes heart rate above zone 1",
-      "Prioritise sleep hygiene tonight — this is where the gains happen",
-    ],
-    timing: "Move when it feels good — no pressure on timing",
-    nutrition: {
-      headline: "Recovery nutrition — repair and restore",
-      points: [
-        "Protein: maintain 1.6g per kg — muscle protein synthesis continues",
-        "Collagen-rich foods support connective tissue repair (bone broth, eggs)",
-        "Zinc and magnesium today: supports overnight recovery",
-        "Avoid heavy meals late — your HRV will thank you",
-        "Hydration is the most underrated recovery lever",
-      ],
-    },
-  };
-}
-
-// ─── Tier badge styling ─────────────────────────────────────────────────────────
-
-function tierStyle(tier: TrainingTier) {
-  if (tier === "hard")
-    return {
-      badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400",
-      border: "border-emerald-200 dark:border-emerald-800",
-      dot: "bg-emerald-500",
-      icon: "💪",
-    };
-  if (tier === "moderate")
-    return {
-      badge: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400",
-      border: "border-yellow-200 dark:border-yellow-800",
-      dot: "bg-yellow-500",
-      icon: "🏃",
-    };
-  return {
-    badge: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
-    border: "border-blue-200 dark:border-blue-800",
-    dot: "bg-blue-500",
-    icon: "🧘",
-  };
-}
-
-// ─── Page ───────────────────────────────────────────────────────────────────────
-
-export default async function WellbeingPage() {
-  // Fetch Whoop data server-side
-  let whoopData: WhoopData | null = null;
-  try {
-    const session = await getServerSession(authOptions);
-    if (session?.user?.email) {
-      const token = await getValidWhoopToken(session.user.email).catch(() => null);
-      if (token) {
-        whoopData = await fetchWhoopData(token);
-      }
-    }
-  } catch {
-    // No Whoop data — show neutral state
-  }
-
-  const recoveryScore = whoopData?.recovery?.score?.recovery_score ?? null;
-  const hrv = whoopData?.recovery?.score?.hrv_rmssd_milli ?? null;
-  const strain = whoopData?.cycle?.score?.strain ?? null;
-  const rec = getTrainingRec(recoveryScore !== null ? Math.round(recoveryScore) : null);
-  const style = tierStyle(rec.tier);
-
+function GutCheck({ question }: { question: string }) {
+  const [choice, setChoice] = useState<GutChoice>(null);
   return (
-    <div className="max-w-2xl space-y-8">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">Wellbeing</h1>
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400">
-            🏗️ Longevity + Muscle Building
-          </span>
-        </div>
-        <p className="text-sm text-neutral-500 dark:text-neutral-400">
-          Longevity-first. Respond, don&apos;t push.
-        </p>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+      <span style={{ fontSize: 14, color: "#dfe3df" }}>{question}</span>
+      <div style={{ display: "flex", gap: 7, flex: "none" }}>
+        {(["yes", "no"] as GutChoice[]).map((opt) => {
+          const active = choice === opt;
+          return (
+            <button
+              key={opt!}
+              onClick={() => setChoice(opt)}
+              style={{
+                ...MONO,
+                fontSize: 12,
+                padding: "9px 16px",
+                borderRadius: 10,
+                border: `1px solid ${active ? "rgba(79,217,154,0.3)" : "rgba(255,255,255,0.12)"}`,
+                background: active ? "rgba(79,217,154,0.08)" : "transparent",
+                color: active ? "#4fd99a" : "rgba(255,255,255,0.5)",
+                cursor: "pointer",
+              }}
+            >
+              {opt}
+            </button>
+          );
+        })}
       </div>
+    </div>
+  );
+}
 
-      {/* ── TODAY'S TRAINING ──────────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
-          Today&apos;s Training
-        </h2>
+export default function WellbeingPage() {
+  return (
+    <div style={{ position: "relative", overflow: "hidden" }}>
+      <div style={{ position: "absolute", top: -180, left: "30%", width: 680, height: 460, background: "radial-gradient(ellipse at center, rgba(79,217,154,0.08), rgba(79,217,154,0) 70%)", pointerEvents: "none" }} />
 
-        {/* Whoop metrics row */}
-        {whoopData && (
-          <div className="flex items-center gap-6 flex-wrap">
-            {recoveryScore !== null && <RecoveryRing score={Math.round(recoveryScore)} size="sm" />}
-            <div className="flex gap-6">
-              {hrv !== null && (
-                <div>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">HRV</p>
-                  <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                    {Math.round(hrv)}
-                    <span className="text-xs font-normal text-neutral-400 ml-0.5">ms</span>
-                  </p>
-                </div>
-              )}
-              {strain !== null && (
-                <div>
-                  <p className="text-xs text-neutral-500 dark:text-neutral-400">Yesterday&apos;s Strain</p>
-                  <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-                    {strain.toFixed(1)}
-                    <span className="text-xs font-normal text-neutral-400 ml-0.5">/21</span>
-                  </p>
-                </div>
-              )}
-            </div>
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 1180, margin: "0 auto", padding: "34px 44px 56px" }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 20, marginBottom: 30 }}>
+          <div>
+            <div style={{ ...MONO, fontSize: 10, letterSpacing: "2px", color: "#7d837d", textTransform: "uppercase", marginBottom: 8 }}>Movement &amp; nutrition · longevity first</div>
+            <h1 style={{ fontWeight: 300, fontSize: 32, color: "#eef0ee", margin: 0, letterSpacing: "-0.4px" }}>Wellbeing</h1>
           </div>
-        )}
-
-        {/* Recommendation card */}
-        <div className={`rounded-xl border ${style.border} p-5 space-y-4`}>
-          <div className="flex items-start gap-3">
-            <span className="text-2xl shrink-0">{style.icon}</span>
-            <div className="flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">
-                  {rec.headline}
-                </h3>
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${style.badge}`}>
-                  {rec.tier === "hard" ? "Hard" : rec.tier === "moderate" ? "Moderate" : "Recovery only"}
-                </span>
-              </div>
-              <p className="text-sm text-neutral-600 dark:text-neutral-400 mt-1">{rec.subline}</p>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            {rec.suggestions.map((s, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <div className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${style.dot}`} />
-                <p className="text-sm text-neutral-700 dark:text-neutral-300">{s}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-2 pt-1 border-t border-neutral-100 dark:border-neutral-800">
-            <span className="text-xs">⏰</span>
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">{rec.timing}</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "10px 16px", borderRadius: 11, border: "1px solid rgba(79,217,154,0.2)", background: "rgba(79,217,154,0.06)", cursor: "pointer" }}>
+            <i className="ph-fill ph-barbell" style={{ fontSize: 15, color: "#4fd99a" }} />
+            <span style={{ fontSize: 12.5, color: "#cdd2cd" }}>Phase · Longevity + Muscle</span>
+            <i className="ph ph-caret-down" style={{ fontSize: 13, color: "#7d837d" }} />
           </div>
         </div>
-      </section>
 
-      {/* ── NUTRITION TODAY ──────────────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
-          Nutrition Today
-        </h2>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 372px", gap: 18, alignItems: "start" }}>
 
-        <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-5 space-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🥗</span>
-            <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              {rec.nutrition.headline}
-            </h3>
-          </div>
+          {/* LEFT */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18, minWidth: 0 }}>
 
-          <div className="space-y-2">
-            {rec.nutrition.points.map((p, i) => (
-              <div key={i} className="flex items-start gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-neutral-400 mt-1.5 shrink-0" />
-                <p className="text-sm text-neutral-700 dark:text-neutral-300">{p}</p>
+            {/* Today's training */}
+            <div style={{ border: "1px solid rgba(79,217,154,0.22)", borderRadius: 16, background: "linear-gradient(160deg, rgba(79,217,154,0.06), rgba(79,217,154,0))", padding: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <i className="ph-duotone ph-person-simple-run" style={{ fontSize: 17, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#4fd99a", textTransform: "uppercase" }}>Today&apos;s training</span>
               </div>
-            ))}
+              <h2 style={{ fontWeight: 400, fontSize: 24, color: "#eef0ee", margin: "0 0 10px" }}>Moderate session</h2>
+              <p style={{ fontSize: 14, color: "#cdd2cd", margin: "0 0 18px", lineHeight: 1.55, maxWidth: 520 }}>
+                Recovery&apos;s at 68% — enough for steady aerobic work, not a max effort. A zone-two run protects tomorrow&apos;s recovery while serving the longevity goal.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 20 }}>
+                <span style={{ fontSize: 12.5, color: "#dfe3df", padding: "8px 14px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>Zone 2 · 40 min</span>
+                <span style={{ fontSize: 12.5, color: "#dfe3df", padding: "8px 14px", borderRadius: 999, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.08)" }}>Mobility · 10 min</span>
+                <span style={{ fontSize: 12.5, color: "#868d86", padding: "8px 14px", borderRadius: 999, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)" }}>before lunch · natural light</span>
+              </div>
+              <GutCheck question="Does a zone-2 run before lunch feel right?" />
+            </div>
+
+            {/* Workout learning engine */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, background: "rgba(255,255,255,0.02)", padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <i className="ph-duotone ph-brain" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Workout learning engine</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 15 }}>
+                <div style={{ display: "flex", gap: 12 }}>
+                  <i className="ph-fill ph-trend-up" style={{ fontSize: 16, color: "#4fd99a", marginTop: 2, flex: "none" }} />
+                  <p style={{ margin: 0, fontSize: 14, color: "#dfe3df", lineHeight: 1.5 }}>Strength training gives you <span style={{ color: "#4fd99a" }}>15% better HRV recovery</span> than HIIT.</p>
+                </div>
+                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+                <div style={{ display: "flex", gap: 12 }}>
+                  <i className="ph-fill ph-trend-up" style={{ fontSize: 16, color: "#4fd99a", marginTop: 2, flex: "none" }} />
+                  <p style={{ margin: 0, fontSize: 14, color: "#dfe3df", lineHeight: 1.5 }}>Tuesday zone-2 runs consistently improve your <span style={{ color: "#4fd99a" }}>Thursday recovery</span>.</p>
+                </div>
+                <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+                <div style={{ display: "flex", gap: 12 }}>
+                  <i className="ph-fill ph-trend-down" style={{ fontSize: 16, color: "#d9b45f", marginTop: 2, flex: "none" }} />
+                  <p style={{ margin: 0, fontSize: 14, color: "#dfe3df", lineHeight: 1.5 }}>Late evening workouts cut your deep sleep by <span style={{ color: "#d9b45f" }}>~40 min</span>.</p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Direct Light reminder */}
-          <div className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800 px-3 py-2 flex items-start gap-2">
-            <span className="text-sm shrink-0">☀️</span>
-            <p className="text-xs text-amber-800 dark:text-amber-400">
-              <strong>Direct Light digestion</strong> — eat your main meals in natural light, not at a dark desk.
-              This is part of your Human Design.
-            </p>
+          {/* RIGHT */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+            {/* Eating window */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, background: "rgba(255,255,255,0.02)", padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <i className="ph ph-clock" style={{ fontSize: 16, color: "#4fd99a" }} />
+                  <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Eating window</span>
+                </div>
+                <span style={{ ...MONO, fontSize: 12, color: "#eef0ee" }}>8h 0m</span>
+              </div>
+              <div style={{ position: "relative", height: 10, borderRadius: 6, background: "rgba(255,255,255,0.05)", marginBottom: 8, overflow: "hidden" }}>
+                <div style={{ position: "absolute", left: "33%", width: "34%", top: 0, bottom: 0, background: "linear-gradient(90deg, #1e8d63, #4fd99a)", borderRadius: 6 }} />
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", ...MONO, fontSize: 9, color: "#5e645e", marginBottom: 18 }}>
+                <span>6a</span><span>12p</span><span>6p</span><span>12a</span>
+              </div>
+              <p style={{ fontSize: 13, color: "#cdd2cd", margin: 0, lineHeight: 1.55 }}>
+                12:00–20:00 today. <span style={{ color: "#4fd99a" }}>Consistent 5 days running.</span> Eating after 8pm tends to cost you ~35 min of deep sleep.
+              </p>
+            </div>
+
+            {/* Today's fuel */}
+            <div style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 16, background: "rgba(255,255,255,0.02)", padding: 22 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+                <i className="ph-duotone ph-fork-knife" style={{ fontSize: 16, color: "#4fd99a" }} />
+                <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#7d837d", textTransform: "uppercase" }}>Today&apos;s fuel</span>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {[
+                  { time: "12:00 · BREAK FAST", dish: "Eggs, avocado, greens in natural light", note: "protein + healthy fat for a focus day" },
+                  { time: "15:00 · POST-TRAINING", dish: "Salmon, sweet potato, rocket", note: "high protein — pairs with your creatine" },
+                  { time: "19:30 · DINNER", dish: "Lentil & vegetable stew", note: "lighter & early — protects deep sleep" },
+                ].map(({ time, dish, note }, idx) => (
+                  <div key={time}>
+                    {idx > 0 && <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "16px 0" }} />}
+                    <div style={{ ...MONO, fontSize: 9, letterSpacing: "1px", color: "#4fd99a", marginBottom: 5 }}>{time}</div>
+                    <div style={{ fontSize: 13.5, color: "#eef0ee" }}>{dish}</div>
+                    <div style={{ fontSize: 11.5, color: "#868d86", marginTop: 2 }}>{note}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
-      </section>
-
-      {/* ── EATING WINDOW ─────────────────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
-          Eating Window
-        </h2>
-        <EatingWindowSection />
-      </section>
-
-      {/* ── WORKOUT LOG ──────────────────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
-          Workout Log
-        </h2>
-        <WorkoutSection />
-      </section>
-
-      {/* ── WORKOUT PATTERNS ──────────────────────────────────────────────────── */}
-      <section className="space-y-4">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-600">
-          Workout Patterns
-        </h2>
-        <WorkoutPatterns />
-      </section>
+      </div>
     </div>
   );
 }
