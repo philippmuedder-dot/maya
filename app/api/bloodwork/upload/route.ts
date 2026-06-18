@@ -203,7 +203,7 @@ export async function POST(req: NextRequest) {
   // ── First pass ────────────────────────────────────────────────────────────
   try {
     const message = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 8000,
       messages: [{ role: "user", content: [fileBlock, { type: "text", text: EXTRACT_PROMPT }] }],
     });
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
 
       try {
         const message2 = await anthropic.messages.create({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6",
           max_tokens: 8000,
           messages: [{
             role: "user",

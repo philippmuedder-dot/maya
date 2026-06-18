@@ -95,7 +95,7 @@ Respond with ONLY valid JSON. No markdown.`;
   try {
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 2048,
       system: "You are a genetic analysis expert. Extract health-relevant SNPs from raw genetic data files and provide evidence-based interpretations.",
       messages: [{ role: "user", content: prompt }],

@@ -8,7 +8,7 @@ GitHub: https://github.com/philippmuedder-dot/maya
 ## Tech stack
 - Next.js 14, Tailwind CSS, Supabase, Vercel
 - Auth: NextAuth.js with Google OAuth
-- AI: Anthropic Claude API (claude-sonnet-4-20250514)
+- AI: Anthropic Claude API (claude-sonnet-4-6)
 
 ## Key rules for Claude Code
 - NEVER run npm, tsc, or build commands — they timeout

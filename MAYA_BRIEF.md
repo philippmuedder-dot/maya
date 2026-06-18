@@ -74,7 +74,7 @@ Key gifts:
 | Styling | Tailwind CSS + system dark/light mode |
 | Auth | NextAuth.js with Google OAuth |
 | Database | Supabase (PostgreSQL) |
-| AI | Anthropic Claude API (claude-sonnet-4-20250514) |
+| AI | Anthropic Claude API (claude-sonnet-4-6) |
 | File Storage | Supabase Storage |
 | Hosting | Vercel |
 | Version Control | GitHub |

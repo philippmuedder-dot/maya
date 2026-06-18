@@ -82,7 +82,7 @@ If a type has no data, use null for its rate. Be specific with numbers. Respond 
     ]);
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 1024,
       system: "You are MAYA, a personal health intelligence system."
         + "\n\n---\n## Who you are talking to:\n" + philippContext

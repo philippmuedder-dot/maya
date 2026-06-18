@@ -180,7 +180,7 @@ Rules:
   try {
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 4096,
       system:
         "You are an expert in nutrigenomics and personalized medicine. Analyze this person's genetic variants in context of their bloodwork, supplements, and health data. Be specific and actionable. This person's goal stack in priority order: longevity, muscle building, mental clarity, stress resilience.",

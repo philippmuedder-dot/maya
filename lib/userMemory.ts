@@ -78,7 +78,7 @@ ${conversation}`;
 
     const anthropic = new Anthropic();
     const response = await anthropic.messages.create({
-      model: "claude-sonnet-4-20250514",
+      model: "claude-sonnet-4-6",
       max_tokens: 512,
       system:
         "You are an intelligent memory system for MAYA, Philipp's personal OS. Extract meaningful, specific insights from conversations. Be concise and specific — avoid generic statements.",
