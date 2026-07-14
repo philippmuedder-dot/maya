@@ -286,11 +286,69 @@ function EditModal({ supplement, onClose, onSaved }: { supplement: Supplement; o
   );
 }
 
-function ProductRow({ group, takenSet, onToggleGroup, onToggleOne, onEdit }: {
+// ── Delete confirmation — protects logged history ─────────────────────────────
+function ConfirmDelete({ group, historyDays, onClose, onPause, onConfirm }: {
+  group: Group;
+  historyDays: number;
+  onClose: () => void;
+  onPause: () => void;
+  onConfirm: () => void;
+}) {
+  const [working, setWorking] = useState(false);
+  const label = group.productName ?? group.items[0].name;
+  const hasHistory = historyDays > 0;
+
+  return (
+    <ModalShell title={`Delete ${label}?`} onClose={onClose}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        <p style={{ fontSize: 13.5, color: "#cdd2cd", margin: 0, lineHeight: 1.55 }}>
+          This removes {group.items.length > 1 ? `all ${group.items.length} ingredients` : "this supplement"} permanently.
+        </p>
+
+        {hasHistory && (
+          <div style={{ border: "1px solid rgba(217,180,95,0.3)", borderRadius: 12, padding: 14, background: "rgba(217,180,95,0.06)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+              <i className="ph-fill ph-warning" style={{ fontSize: 15, color: "#d9b45f" }} />
+              <span style={{ ...MONO, fontSize: 10, letterSpacing: "1px", color: "#d9b45f", textTransform: "uppercase" }}>History will be lost</span>
+            </div>
+            <p style={{ fontSize: 12.5, color: "#cdd2cd", margin: 0, lineHeight: 1.5 }}>
+              {historyDays} logged {historyDays === 1 ? "entry" : "entries"} will be deleted with it. Maya can no longer correlate this with your recovery data.
+              <br /><br />
+              <strong style={{ color: "#eef0ee", fontWeight: 500 }}>Pause instead</strong> to stop taking it while keeping the history.
+            </p>
+          </div>
+        )}
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {hasHistory && (
+            <button
+              onClick={() => { setWorking(true); onPause(); }}
+              disabled={working}
+              style={{ ...primaryBtn, opacity: working ? 0.6 : 1 }}
+            >
+              Pause instead — keep history
+            </button>
+          )}
+          <button
+            onClick={() => { setWorking(true); onConfirm(); }}
+            disabled={working}
+            style={{ ...MONO, fontSize: 12, padding: "12px", borderRadius: 11, border: "1px solid rgba(224,128,127,0.35)", background: "rgba(224,128,127,0.08)", color: "#e0807f", cursor: "pointer", opacity: working ? 0.6 : 1 }}
+          >
+            {working ? "Deleting…" : hasHistory ? "Delete anyway" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ProductRow({ group, takenSet, onToggleGroup, onToggleOne, onEdit, onPauseToggle, onDelete }: {
   group: Group; takenSet: Set<string>;
   onToggleGroup: (ids: string[], makeTaken: boolean) => void;
   onToggleOne: (id: string, makeTaken: boolean) => void;
   onEdit: (s: Supplement) => void;
+  onPauseToggle: (g: Group, makeActive: boolean) => void;
+  onDelete: (g: Group) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isProduct = group.productName != null && group.items.length > 1;
@@ -307,6 +365,8 @@ function ProductRow({ group, takenSet, onToggleGroup, onToggleOne, onEdit }: {
           <div style={{ fontSize: 12, color: "#868d86", marginTop: 2 }}>{cap(s.timing)}{s.purpose ? ` · ${s.purpose}` : ""}</div>
         </div>
         <IconBtn icon="ph ph-pencil-simple" title="Edit" onClick={() => onEdit(s)} />
+        <IconBtn icon="ph ph-pause" title="Pause — keeps history" onClick={() => onPauseToggle(group, false)} />
+        <IconBtn icon="ph ph-trash" title="Delete permanently" onClick={() => onDelete(group)} color="#e0807f" />
         <Checkbox checked={takenSet.has(s.id)} onClick={() => onToggleOne(s.id, !takenSet.has(s.id))} />
       </div>
     );
@@ -323,6 +383,8 @@ function ProductRow({ group, takenSet, onToggleGroup, onToggleOne, onEdit }: {
         <button onClick={() => setExpanded((v) => !v)} style={{ ...MONO, fontSize: 10, color: "#7d837d", padding: "5px 10px", borderRadius: 7, background: "rgba(255,255,255,0.04)", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
           {expanded ? "hide" : "ingredients"}<i className="ph ph-caret-down" style={{ fontSize: 11, transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
         </button>
+        <IconBtn icon="ph ph-pause" title="Pause product — keeps history" onClick={() => onPauseToggle(group, false)} />
+        <IconBtn icon="ph ph-trash" title="Delete product permanently" onClick={() => onDelete(group)} color="#e0807f" />
         <Checkbox checked={allTaken} onClick={() => onToggleGroup(group.items.map((s) => s.id), !allTaken)} />
       </div>
       {expanded && (
@@ -349,6 +411,8 @@ export default function SupplementsPage() {
   const [loaded, setLoaded] = useState(false);
   const [modal, setModal] = useState<null | "add" | "scan">(null);
   const [editing, setEditing] = useState<Supplement | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Group | null>(null);
+  const [historyCounts, setHistoryCounts] = useState<Record<string, number>>({});
 
   const [insights, setInsights] = useState<Insight[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(true);
@@ -366,7 +430,43 @@ export default function SupplementsPage() {
       (logs.taken ?? []).forEach((id: string) => taken.add(id));
     } catch {}
     setSupplements(list); setTakenToday(taken); setLoaded(true);
+
+    // How many logged entries each supplement carries (delete warning)
+    fetch("/api/supplements/history-counts")
+      .then((r) => (r.ok ? r.json() : { counts: {} }))
+      .then((d) => setHistoryCounts(d.counts ?? {}))
+      .catch(() => {});
   }
+
+  // Pause or resume every ingredient in a product
+  async function setGroupActive(g: Group, makeActive: boolean) {
+    setSupplements((prev) => prev.map((s) => (g.items.some((i) => i.id === s.id) ? { ...s, active: makeActive } : s)));
+    await Promise.all(
+      g.items.map((s) =>
+        fetch(`/api/supplements/${s.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: s.name, product_name: s.product_name, dose: s.dose, unit: s.unit,
+            timing: s.timing, purpose: s.purpose, notes: null, active: makeActive,
+          }),
+        }).catch(() => {})
+      )
+    );
+    loadStack();
+  }
+
+  // Permanently delete every ingredient in a product (cascades its logs)
+  async function deleteGroup(g: Group) {
+    setSupplements((prev) => prev.filter((s) => !g.items.some((i) => i.id === s.id)));
+    setDeleteTarget(null);
+    await Promise.all(
+      g.items.map((s) => fetch(`/api/supplements/${s.id}`, { method: "DELETE" }).catch(() => {}))
+    );
+    loadStack();
+  }
+
+  const groupHistory = (g: Group) => g.items.reduce((sum, s) => sum + (historyCounts[s.id] ?? 0), 0);
 
   useEffect(() => {
     loadStack();
@@ -428,7 +528,7 @@ export default function SupplementsPage() {
                     <button onClick={() => setModal("scan")} style={{ ...MONO, fontSize: 12, padding: "9px 16px", borderRadius: 10, border: "1px solid #4fd99a", background: "rgba(79,217,154,0.13)", color: "#4fd99a", cursor: "pointer" }}>Scan a label to start</button>
                   </div>
                 ) : (
-                  activeGroups.map((g) => <ProductRow key={g.key} group={g} takenSet={takenToday} onToggleGroup={toggleGroup} onToggleOne={toggleOne} onEdit={setEditing} />)
+                  activeGroups.map((g) => <ProductRow key={g.key} group={g} takenSet={takenToday} onToggleGroup={toggleGroup} onToggleOne={toggleOne} onEdit={setEditing} onPauseToggle={setGroupActive} onDelete={setDeleteTarget} />)
                 )}
                 {pausedGroups.map((g) => (
                   <div key={g.key} style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", border: "1px dashed rgba(217,180,95,0.3)", borderRadius: 12, background: "rgba(217,180,95,0.03)", opacity: 0.85 }}>
@@ -437,7 +537,9 @@ export default function SupplementsPage() {
                       <div style={{ fontSize: 14.5, color: "#cdd2cd", fontWeight: 500 }}>{g.productName ?? g.items[0].name}</div>
                       <div style={{ fontSize: 12, color: "#a08a55", marginTop: 2 }}>Paused{g.productName ? ` · ${g.items.length} ingredients` : ""}</div>
                     </div>
-                    <IconBtn icon="ph ph-pencil-simple" title="Edit" onClick={() => setEditing(g.items[0])} color="#d9b45f" />
+                    <span style={{ ...MONO, fontSize: 10, color: "#d9b45f", padding: "5px 10px", borderRadius: 7, background: "rgba(217,180,95,0.1)" }}>PAUSED</span>
+                    <IconBtn icon="ph ph-play" title="Resume" onClick={() => setGroupActive(g, true)} color="#4fd99a" />
+                    <IconBtn icon="ph ph-trash" title="Delete permanently" onClick={() => setDeleteTarget(g)} color="#e0807f" />
                   </div>
                 ))}
               </div>
@@ -506,6 +608,15 @@ export default function SupplementsPage() {
       {modal === "add" && <AddModal onClose={() => setModal(null)} onSaved={loadStack} />}
       {modal === "scan" && <ParseModal onClose={() => setModal(null)} onSaved={loadStack} />}
       {editing && <EditModal supplement={editing} onClose={() => setEditing(null)} onSaved={loadStack} />}
+      {deleteTarget && (
+        <ConfirmDelete
+          group={deleteTarget}
+          historyDays={groupHistory(deleteTarget)}
+          onClose={() => setDeleteTarget(null)}
+          onPause={() => { const g = deleteTarget; setDeleteTarget(null); setGroupActive(g, false); }}
+          onConfirm={() => deleteGroup(deleteTarget)}
+        />
+      )}
     </div>
   );
 }
