@@ -146,7 +146,11 @@ function ParseModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => 
       const res = await fetch("/api/supplements/parse", { method: "POST", body: fd });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Couldn't read the label.");
-      setItems(data.ingredients ?? []);
+      const found: ParsedItem[] = data.supplements ?? data.ingredients ?? [];
+      if (found.length === 0) {
+        throw new Error("No ingredients found on that image. Try a sharper, closer photo of the ingredients panel.");
+      }
+      setItems(found);
       setProductName(data.product_name ?? "");
       setTiming(data.timing_suggestion ?? "morning");
     } catch (e) { setErr(e instanceof Error ? e.message : "Parse failed."); } finally { setParsing(false); }
