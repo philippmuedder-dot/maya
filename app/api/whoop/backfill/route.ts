@@ -99,7 +99,7 @@ export async function GET() {
     const existing = bestSleepByDate.get(d);
     if (!existing || hours > existing.hours) bestSleepByDate.set(d, { hours, quality });
   }
-  for (const [d, v] of bestSleepByDate) {
+  for (const [d, v] of Array.from(bestSleepByDate.entries())) {
     const r = row(d);
     r.sleep_hours = v.hours;
     if (v.quality != null) r.sleep_quality = v.quality;
