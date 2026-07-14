@@ -4,7 +4,7 @@ import { authOptions } from "@/lib/auth";
 import Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam } from "@anthropic-ai/sdk/resources";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
 
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 2048,
+        max_tokens: 8192,
         messages: [
           {
             role: "user",
@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
 
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
-        max_tokens: 2048,
+        max_tokens: 8192,
         messages: [
           {
             role: "user",
@@ -110,6 +110,14 @@ export async function POST(req: NextRequest) {
           },
         ],
       });
+
+      if (message.stop_reason === "max_tokens") {
+        console.error("[supplements/parse] response truncated at max_tokens");
+        return NextResponse.json(
+          { error: "That label has too many ingredients to read in one pass. Try photographing just the ingredients panel." },
+          { status: 422 }
+        );
+      }
 
       const raw = message.content[0].type === "text" ? message.content[0].text : "";
       const jsonStr = raw.replace(/^```(?:json)?\n?/, "").replace(/\n?```$/, "").trim();
@@ -123,7 +131,8 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error("[supplements/parse] error:", err);
-    return NextResponse.json({ error: "Failed to parse supplements." }, { status: 500 });
+    const msg = err instanceof Error ? err.message : "Failed to parse supplements.";
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 
   return NextResponse.json({ supplements: parsedSupplements });
